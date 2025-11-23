@@ -10,31 +10,39 @@ await socket.ConnectAsync(host, port);
 var stream = new NetworkStream(socket);
 Console.WriteLine($"Connected to {host}:{port}");
 
-// Send HelloRequest
-var helloRequest = new HelloRequest
-{
-    ClientInfo = "ESP_Home_interactor",
-    ApiVersionMajor = 1,
-    ApiVersionMinor = 13
-};
+await SendHelloWorld(stream);
+await Cleanup(socket);
 
-await SendMessage(stream, 1, helloRequest);
-Console.WriteLine("Sent HelloRequest");
+static async Task Cleanup(Socket socket)
+{
+    socket.Close();
+    Console.WriteLine("Cleanup completed");
+}
+static async Task SendHelloWorld(NetworkStream stream)
+{
+// Send HelloRequest
+    var helloRequest = new HelloRequest
+    {
+        ClientInfo = "ESP_Home_interactor",
+        ApiVersionMajor = 1,
+        ApiVersionMinor = 13
+    };
+
+    await SendMessage(stream, 1, helloRequest);
+    Console.WriteLine("Sent HelloRequest");
 
 // Read HelloResponse
-var (msgType, msgData) = await ReadMessage(stream);
-Console.WriteLine($"Received message type: {msgType}");
+    var (msgType, msgData) = await ReadMessage(stream);
+    Console.WriteLine($"Received message type: {msgType}");
 
-if (msgType == 2) // HelloResponse
-{
-    var helloResponse = HelloResponse.Parser.ParseFrom(msgData);
-    Console.WriteLine($"Server: {helloResponse.ServerInfo}");
-    Console.WriteLine($"API: {helloResponse.ApiVersionMajor}.{helloResponse.ApiVersionMinor}");
-    Console.WriteLine($"Name: {helloResponse.Name}");
+    if (msgType == 2) // HelloResponse
+    {
+        var helloResponse = HelloResponse.Parser.ParseFrom(msgData);
+        Console.WriteLine($"Server: {helloResponse.ServerInfo}");
+        Console.WriteLine($"API: {helloResponse.ApiVersionMajor}.{helloResponse.ApiVersionMinor}");
+        Console.WriteLine($"Name: {helloResponse.Name}");
+    }
 }
-
-Console.ReadLine();
-socket.Close();
 
 static async Task SendMessage(NetworkStream stream, uint messageType, IMessage message)
 {

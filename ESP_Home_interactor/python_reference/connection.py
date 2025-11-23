@@ -1,24 +1,22 @@
 from __future__ import annotations
 
+import aiohappyeyeballs
 import asyncio
-from asyncio import CancelledError
-from collections.abc import Callable
-from dataclasses import astuple, dataclass
 import enum
-from functools import lru_cache, partial
 import logging
 import socket
 import sys
 import time
-from typing import TYPE_CHECKING, Any
-
-import aiohappyeyeballs
 from async_interrupt import interrupt
+from asyncio import CancelledError
+from collections.abc import Callable
+from dataclasses import astuple, dataclass
+from functools import lru_cache, partial
 from google.protobuf import message
 from google.protobuf.json_format import MessageToDict
+from typing import TYPE_CHECKING, Any
 
 import host_resolver as hr
-
 from ._frame_helper.noise import APINoiseFrameHelper
 from ._frame_helper.plain_text import APIPlaintextFrameHelper
 from .api_pb2 import (  # type: ignore
@@ -59,7 +57,6 @@ _LOGGER = logging.getLogger(__name__)
 MESSAGE_NUMBER_TO_PROTO: tuple[
     tuple[Callable[[], message.Message], Callable[[message.Message, bytes], None]], ...
 ] = tuple((msg, msg.MergeFromString) for msg in MESSAGE_TYPE_TO_PROTO.values())
-
 
 PREFERRED_BUFFER_SIZE = 2097152  # Set buffer limit to 2MB
 MIN_BUFFER_SIZE = 131072  # Minimum buffer size to use
@@ -168,11 +165,11 @@ _handle_timeout = handle_timeout
 
 
 def handle_complex_message(
-    fut: asyncio.Future[None],
-    responses: list[message.Message],
-    do_append: Callable[[message.Message], bool] | None,
-    do_stop: Callable[[message.Message], bool] | None,
-    resp: message.Message,
+        fut: asyncio.Future[None],
+        responses: list[message.Message],
+        do_append: Callable[[message.Message], bool] | None,
+        do_stop: Callable[[message.Message], bool] | None,
+        resp: message.Message,
 ) -> None:
     """Handle a message that is part of a response."""
     if not fut.done():
@@ -226,12 +223,12 @@ class APIConnection:
     )
 
     def __init__(
-        self,
-        params: ConnectionParams,
-        on_stop: Callable[[bool], None] | None,
-        debug_enabled: bool,
-        log_name: str | None,
-        log_errors: bool = True,
+            self,
+            params: ConnectionParams,
+            on_stop: Callable[[bool], None] | None,
+            debug_enabled: bool,
+            log_name: str | None,
+            log_errors: bool = True,
     ) -> None:
         self._params = params
         self.on_stop = on_stop
@@ -473,7 +470,7 @@ class APIConnection:
             tuple(messages),
             None,
             lambda resp: type(resp)  # pylint: disable=unidiomatic-typecheck
-            is HelloResponse,  # Only wait for HelloResponse
+                         is HelloResponse,  # Only wait for HelloResponse
             tuple(msg_types),
             CONNECT_REQUEST_TIMEOUT,
         )
@@ -591,7 +588,7 @@ class APIConnection:
         self._resolve_host_future = self._loop.create_future()
         try:
             async with interrupt(
-                self._resolve_host_future, ConnectionInterruptedError, None
+                    self._resolve_host_future, ConnectionInterruptedError, None
             ):
                 self._addrs_info = await hr.async_resolve_host(
                     self._params.addresses,
@@ -610,8 +607,8 @@ class APIConnection:
 
     def _set_resolve_host_future(self) -> None:
         if (
-            self._resolve_host_future is not None
-            and not self._resolve_host_future.done()
+                self._resolve_host_future is not None
+                and not self._resolve_host_future.done()
         ):
             self._resolve_host_future.set_result(None)
             self._resolve_host_future = None
@@ -630,7 +627,7 @@ class APIConnection:
         self._start_connect_future = self._loop.create_future()
         try:
             async with interrupt(
-                self._start_connect_future, ConnectionInterruptedError, None
+                    self._start_connect_future, ConnectionInterruptedError, None
             ):
                 await self._connect_socket_connect(self._addrs_info)
         except (Exception, CancelledError) as ex:
@@ -645,14 +642,14 @@ class APIConnection:
 
     def _set_start_connect_future(self) -> None:
         if (
-            self._start_connect_future is not None
-            and not self._start_connect_future.done()
+                self._start_connect_future is not None
+                and not self._start_connect_future.done()
         ):
             self._start_connect_future.set_result(None)
             self._start_connect_future = None
 
     def _wrap_fatal_connection_exception(
-        self, action: str, ex: BaseException
+            self, action: str, ex: BaseException
     ) -> APIConnectionError:
         """Ensure a fatal exception is wrapped as as an APIConnectionError."""
         if isinstance(ex, APIConnectionError):
@@ -706,7 +703,7 @@ class APIConnection:
         self._finish_connect_future = self._loop.create_future()
         try:
             async with interrupt(
-                self._finish_connect_future, ConnectionInterruptedError, None
+                    self._finish_connect_future, ConnectionInterruptedError, None
             ):
                 await self._do_finish_connect(login)
         except (Exception, CancelledError) as ex:
@@ -721,8 +718,8 @@ class APIConnection:
 
     def _set_finish_connect_future(self) -> None:
         if (
-            self._finish_connect_future is not None
-            and not self._finish_connect_future.done()
+                self._finish_connect_future is not None
+                and not self._finish_connect_future.done()
         ):
             self._finish_connect_future.set_result(None)
             self._finish_connect_future = None
@@ -732,8 +729,8 @@ class APIConnection:
         self.connection_state = state
         self.is_connected = state is CONNECTION_STATE_CONNECTED
         self._handshake_complete = (
-            state is CONNECTION_STATE_HANDSHAKE_COMPLETE
-            or state is CONNECTION_STATE_CONNECTED
+                state is CONNECTION_STATE_HANDSHAKE_COMPLETE
+                or state is CONNECTION_STATE_CONNECTED
         )
 
     def _make_auth_request(self) -> AuthenticationRequest:
@@ -790,7 +787,7 @@ class APIConnection:
             raise wrapped_err from err
 
     def _add_message_callback_without_remove(
-        self, on_message: Callable[[Any], None], msg_types: tuple[type[Any], ...]
+            self, on_message: Callable[[Any], None], msg_types: tuple[type[Any], ...]
     ) -> None:
         """Add a message callback without returning a remove callable."""
         for msg_type in msg_types:
@@ -800,14 +797,14 @@ class APIConnection:
                 handlers.add(on_message)
 
     def add_message_callback(
-        self, on_message: Callable[[Any], None], msg_types: tuple[type[Any], ...]
+            self, on_message: Callable[[Any], None], msg_types: tuple[type[Any], ...]
     ) -> Callable[[], None]:
         """Add a message callback."""
         self._add_message_callback_without_remove(on_message, msg_types)
         return partial(self._remove_message_callback, on_message, msg_types)
 
     def _remove_message_callback(
-        self, on_message: Callable[[Any], None], msg_types: tuple[type[Any], ...]
+            self, on_message: Callable[[Any], None], msg_types: tuple[type[Any], ...]
     ) -> None:
         """Remove a message callback."""
         for msg_type in msg_types:
@@ -815,10 +812,10 @@ class APIConnection:
             handlers.discard(on_message)
 
     def send_message_callback_response(
-        self,
-        send_msg: message.Message,
-        on_message: Callable[[Any], None],
-        msg_types: tuple[type[Any], ...],
+            self,
+            send_msg: message.Message,
+            on_message: Callable[[Any], None],
+            msg_types: tuple[type[Any], ...],
     ) -> Callable[[], None]:
         """Send a message to the remote and register the given message handler."""
         self.send_messages((send_msg,))
@@ -829,12 +826,12 @@ class APIConnection:
         return self.add_message_callback(on_message, msg_types)
 
     async def send_messages_await_response_complex(  # pylint: disable=too-many-locals
-        self,
-        messages: tuple[message.Message, ...],
-        do_append: Callable[[message.Message], bool] | None,
-        do_stop: Callable[[message.Message], bool] | None,
-        msg_types: tuple[type[Any], ...],
-        timeout: _float,
+            self,
+            messages: tuple[message.Message, ...],
+            do_append: Callable[[message.Message], bool] | None,
+            do_stop: Callable[[message.Message], bool] | None,
+            msg_types: tuple[type[Any], ...],
+            timeout: _float,
     ) -> list[message.Message]:
         """Send a message to the remote and build up a list response.
 
@@ -884,7 +881,7 @@ class APIConnection:
         return responses
 
     async def send_message_await_response(
-        self, send_msg: message.Message, response_type: Any, timeout: _float = 10.0
+            self, send_msg: message.Message, response_type: Any, timeout: _float = 10.0
     ) -> Any:
         [response] = await self.send_messages_await_response_complex(
             (send_msg,),
@@ -918,7 +915,7 @@ class APIConnection:
                     self.log_name,
                     err or type(err),
                     exc_info=not str(err)
-                    or isinstance(
+                             or isinstance(
                         err, UnhandledAPIConnectionError
                     ),  # Log the full stack on empty error string
                 )
@@ -1034,7 +1031,7 @@ class APIConnection:
         )
 
     def _handle_disconnect_request_internal(  # pylint: disable=unused-argument
-        self, _msg: DisconnectRequest
+            self, _msg: DisconnectRequest
     ) -> None:
         """Handle a DisconnectRequest."""
         # Set _expected_disconnect to True before sending
@@ -1045,13 +1042,13 @@ class APIConnection:
         self._cleanup()
 
     def _handle_ping_request_internal(  # pylint: disable=unused-argument
-        self, _msg: PingRequest
+            self, _msg: PingRequest
     ) -> None:
         """Handle a PingRequest."""
         self.send_messages(PING_RESPONSE_MESSAGES)
 
     def _handle_get_time_request_internal(  # pylint: disable=unused-argument
-        self, _msg: GetTimeRequest
+            self, _msg: GetTimeRequest
     ) -> None:
         """Handle a GetTimeRequest."""
         resp = GetTimeResponse()

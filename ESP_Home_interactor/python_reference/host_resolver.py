@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
+import logging
+import socket
 from collections import defaultdict
 from collections.abc import Coroutine
 from contextlib import suppress
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv6Address, ip_address
-import itertools
-import logging
-import socket
 from typing import TYPE_CHECKING, Any, cast
-
 from zeroconf import DNSQuestionType, IPVersion
 from zeroconf.asyncio import AsyncServiceInfo, AsyncZeroconf
 
@@ -24,7 +23,6 @@ from .util import (
 from .zeroconf import ZeroconfManager
 
 _LOGGER = logging.getLogger(__name__)
-
 
 SERVICE_TYPE = "_esphomelib._tcp.local."
 RESOLVE_TIMEOUT = 30.0

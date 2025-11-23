@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Coroutine
 import logging
-from typing import TYPE_CHECKING, Any
-
+from collections.abc import Callable, Coroutine
 from google.protobuf import message
+from typing import TYPE_CHECKING, Any
 
 from ._frame_helper.base import APIFrameHelper  # noqa: F401
 from ._frame_helper.noise import APINoiseFrameHelper  # noqa: F401
@@ -60,9 +59,9 @@ KEEP_ALIVE_FREQUENCY = 20.0
 
 
 def on_state_msg(
-    on_state: Callable[[EntityState], None],
-    image_stream: dict[int, list[bytes]],
-    msg: message.Message,
+        on_state: Callable[[EntityState], None],
+        image_stream: dict[int, list[bytes]],
+        msg: message.Message,
 ) -> None:
     """Handle a state message."""
     msg_type = type(msg)
@@ -86,31 +85,31 @@ def on_state_msg(
 
 
 def on_home_assistant_action_request(
-    on_action: Callable[[HomeassistantServiceCall], None],
-    msg: HomeassistantActionRequest,
+        on_action: Callable[[HomeassistantServiceCall], None],
+        msg: HomeassistantActionRequest,
 ) -> None:
     on_action(HomeassistantServiceCall.from_pb(msg))
 
 
 def on_bluetooth_le_advertising_response(
-    on_bluetooth_le_advertisement: Callable[[BluetoothLEAdvertisement], None],
-    msg: BluetoothLEAdvertisementResponse,
+        on_bluetooth_le_advertisement: Callable[[BluetoothLEAdvertisement], None],
+        msg: BluetoothLEAdvertisementResponse,
 ) -> None:
     on_bluetooth_le_advertisement(BluetoothLEAdvertisement.from_pb(msg))  # type: ignore[misc]
 
 
 def on_bluetooth_connections_free_response(
-    on_bluetooth_connections_free_update: Callable[[int, int, list[int]], None],
-    msg: BluetoothConnectionsFreeResponse,
+        on_bluetooth_connections_free_update: Callable[[int, int, list[int]], None],
+        msg: BluetoothConnectionsFreeResponse,
 ) -> None:
     on_bluetooth_connections_free_update(msg.free, msg.limit, list(msg.allocated))
 
 
 def on_bluetooth_gatt_notify_data_response(
-    address: int,
-    handle: int,
-    on_bluetooth_gatt_notify: Callable[[int, bytearray], None],
-    msg: BluetoothGATTNotifyDataResponse,
+        address: int,
+        handle: int,
+        on_bluetooth_gatt_notify: Callable[[int, bytearray], None],
+        msg: BluetoothGATTNotifyDataResponse,
 ) -> None:
     """Handle a BluetoothGATTNotifyDataResponse message."""
     if address == msg.address and handle == msg.handle:
@@ -125,16 +124,16 @@ def on_bluetooth_gatt_notify_data_response(
 
 
 def on_bluetooth_scanner_state_response(
-    on_bluetooth_scanner_state: Callable[[BluetoothScannerStateResponseModel], None],
-    msg: BluetoothScannerStateResponse,
+        on_bluetooth_scanner_state: Callable[[BluetoothScannerStateResponseModel], None],
+        msg: BluetoothScannerStateResponse,
 ) -> None:
     on_bluetooth_scanner_state(BluetoothScannerStateResponseModel.from_pb(msg))
 
 
 def on_subscribe_home_assistant_state_response(
-    on_state_sub: Callable[[str, str | None], None],
-    on_state_request: Callable[[str, str | None], None] | None,
-    msg: SubscribeHomeAssistantStateResponse,
+        on_state_sub: Callable[[str, str | None], None],
+        on_state_request: Callable[[str, str | None], None] | None,
+        msg: SubscribeHomeAssistantStateResponse,
 ) -> None:
     if on_state_request and msg.once:
         on_state_request(msg.entity_id, msg.attribute)
@@ -143,10 +142,10 @@ def on_subscribe_home_assistant_state_response(
 
 
 def on_bluetooth_device_connection_response(
-    connect_future: asyncio.Future[None],
-    address: int,
-    on_bluetooth_connection_state: Callable[[bool, int, int], None],
-    msg: BluetoothDeviceConnectionResponse,
+        connect_future: asyncio.Future[None],
+        address: int,
+        on_bluetooth_connection_state: Callable[[bool, int, int], None],
+        msg: BluetoothDeviceConnectionResponse,
 ) -> None:
     """Handle a BluetoothDeviceConnectionResponse message.""" ""
     if address == msg.address:
@@ -159,15 +158,15 @@ def on_bluetooth_device_connection_response(
 
 
 def on_bluetooth_handle_message(
-    address: int,
-    handle: int,
-    msg: (
-        BluetoothGATTErrorResponse
-        | BluetoothGATTNotifyResponse
-        | BluetoothGATTReadResponse
-        | BluetoothGATTWriteResponse
-        | BluetoothDeviceConnectionResponse
-    ),
+        address: int,
+        handle: int,
+        msg: (
+                BluetoothGATTErrorResponse
+                | BluetoothGATTNotifyResponse
+                | BluetoothGATTReadResponse
+                | BluetoothGATTWriteResponse
+                | BluetoothDeviceConnectionResponse
+        ),
 ) -> bool:
     """Filter a Bluetooth message for an address and handle."""
     if type(msg) is BluetoothDeviceConnectionResponse:
@@ -176,26 +175,26 @@ def on_bluetooth_handle_message(
 
 
 def on_bluetooth_message_types(
-    address: int,
-    msg_types: tuple[type[message.Message], ...],
-    msg: (
-        BluetoothGATTErrorResponse
-        | BluetoothGATTNotifyResponse
-        | BluetoothGATTReadResponse
-        | BluetoothGATTWriteResponse
-        | BluetoothDeviceConnectionResponse
-        | BluetoothGATTGetServicesResponse
-        | BluetoothGATTGetServicesDoneResponse
-        | BluetoothGATTErrorResponse
-    ),
+        address: int,
+        msg_types: tuple[type[message.Message], ...],
+        msg: (
+                BluetoothGATTErrorResponse
+                | BluetoothGATTNotifyResponse
+                | BluetoothGATTReadResponse
+                | BluetoothGATTWriteResponse
+                | BluetoothDeviceConnectionResponse
+                | BluetoothGATTGetServicesResponse
+                | BluetoothGATTGetServicesDoneResponse
+                | BluetoothGATTErrorResponse
+        ),
 ) -> bool:
     """Filter Bluetooth messages of a specific type and address."""
     return type(msg) in msg_types and bool(msg.address == address)
 
 
 def on_zwave_proxy_request_message(
-    on_zwave_proxy_request: Callable[[ZWaveProxyRequestModel], None],
-    msg: ZWaveProxyRequest,
+        on_zwave_proxy_request: Callable[[ZWaveProxyRequestModel], None],
+        msg: ZWaveProxyRequest,
 ) -> None:
     on_zwave_proxy_request(ZWaveProxyRequestModel.from_pb(msg))
 
@@ -227,19 +226,19 @@ class APIClientBase:
     )
 
     def __init__(
-        self,
-        address: str_,  # allow subclass str
-        port: int,
-        password: str_ | None,
-        *,
-        client_info: str_ = "aioesphomeapi",
-        keepalive: float = KEEP_ALIVE_FREQUENCY,
-        zeroconf_instance: ZeroconfInstanceType | None = None,
-        noise_psk: str_ | None = None,
-        expected_name: str_ | None = None,
-        addresses: list[str_] | None = None,
-        expected_mac: str_ | None = None,
-        timezone: str_ | None = None,
+            self,
+            address: str_,  # allow subclass str
+            port: int,
+            password: str_ | None,
+            *,
+            client_info: str_ = "aioesphomeapi",
+            keepalive: float = KEEP_ALIVE_FREQUENCY,
+            zeroconf_instance: ZeroconfInstanceType | None = None,
+            noise_psk: str_ | None = None,
+            expected_name: str_ | None = None,
+            addresses: list[str_] | None = None,
+            expected_mac: str_ | None = None,
+            timezone: str_ | None = None,
     ) -> None:
         """Create a client, this object is shared across sessions.
 

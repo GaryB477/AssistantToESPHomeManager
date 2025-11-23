@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable, Coroutine
 from functools import partial
-import logging
-from typing import TYPE_CHECKING, Any
-
 from google.protobuf import message
+from typing import TYPE_CHECKING, Any
 
 from .api_pb2 import (  # type: ignore
     AlarmControlPanelCommandRequest,
@@ -189,7 +188,6 @@ USER_SERVICE_MAP_SINGLE = {
     UserServiceArgType.STRING: "string_",
 }
 
-
 ExecuteServiceDataType = dict[
     str, bool | int | float | str | list[bool] | list[int] | list[float] | list[str]
 ]
@@ -207,10 +205,10 @@ class APIClient(APIClientBase):
     """
 
     async def connect(
-        self,
-        on_stop: Callable[[bool], Coroutine[Any, Any, None]] | None = None,
-        login: bool = False,
-        log_errors: bool = True,
+            self,
+            on_stop: Callable[[bool], Coroutine[Any, Any, None]] | None = None,
+            login: bool = False,
+            log_errors: bool = True,
     ) -> None:
         """Connect to the device."""
         await self.start_resolve_host(on_stop, log_errors=log_errors)
@@ -218,9 +216,9 @@ class APIClient(APIClientBase):
         await self.finish_connection(login)
 
     def _on_stop(
-        self,
-        on_stop: Callable[[bool], Coroutine[Any, Any, None]] | None,
-        expected_disconnect: bool,
+            self,
+            on_stop: Callable[[bool], Coroutine[Any, Any, None]] | None,
+            expected_disconnect: bool,
     ) -> None:
         # Hook into on_stop handler to clear connection when stopped
         self._connection = None
@@ -228,9 +226,9 @@ class APIClient(APIClientBase):
             self._create_background_task(on_stop(expected_disconnect))
 
     async def start_resolve_host(
-        self,
-        on_stop: Callable[[bool], Coroutine[Any, Any, None]] | None = None,
-        log_errors: bool = True,
+            self,
+            on_stop: Callable[[bool], Coroutine[Any, Any, None]] | None = None,
+            log_errors: bool = True,
     ) -> None:
         """Start resolving the host."""
         if self._connection is not None:
@@ -254,8 +252,8 @@ class APIClient(APIClientBase):
             self._set_log_name()
 
     async def finish_connection(
-        self,
-        login: bool = False,
+            self,
+            login: bool = False,
     ) -> None:
         """Finish connecting to the device."""
         if TYPE_CHECKING:
@@ -291,7 +289,7 @@ class APIClient(APIClientBase):
         return info
 
     async def list_entities_services(
-        self,
+            self,
     ) -> tuple[list[EntityInfo], list[UserService]]:
         msgs = await self._get_connection().send_messages_await_response_complex(
             (ListEntitiesRequest(),),
@@ -313,7 +311,7 @@ class APIClient(APIClientBase):
         return entities, services
 
     async def device_info_and_list_entities(
-        self,
+            self,
     ) -> tuple[DeviceInfo, list[EntityInfo], list[UserService]]:
         """Get device info and list entities in a single call.
 
@@ -375,10 +373,10 @@ class APIClient(APIClientBase):
         )
 
     def subscribe_logs(
-        self,
-        on_log: Callable[[SubscribeLogsResponse], None],
-        log_level: LogLevel | None = None,
-        dump_config: bool | None = None,
+            self,
+            on_log: Callable[[SubscribeLogsResponse], None],
+            log_level: LogLevel | None = None,
+            dump_config: bool | None = None,
     ) -> Callable[[], None]:
         """Subscribe to logs.
 
@@ -402,7 +400,7 @@ class APIClient(APIClientBase):
         )
 
     def subscribe_service_calls(
-        self, on_service_call: Callable[[HomeassistantServiceCall], None]
+            self, on_service_call: Callable[[HomeassistantServiceCall], None]
     ) -> None:
         self._get_connection().send_message_callback_response(
             SubscribeHomeassistantServicesRequest(),
@@ -411,8 +409,8 @@ class APIClient(APIClientBase):
         )
 
     def subscribe_zwave_proxy_request(
-        self,
-        on_zwave_proxy_request: Callable[[ZWaveProxyRequestModel], None],
+            self,
+            on_zwave_proxy_request: Callable[[ZWaveProxyRequestModel], None],
     ) -> Callable[[], None]:
         """Subscribe to Z-Wave Proxy Request messages."""
         return self._get_connection().add_message_callback(
@@ -424,16 +422,16 @@ class APIClient(APIClientBase):
         )
 
     async def _send_bluetooth_message_await_response(
-        self,
-        address: int,
-        handle: int,
-        request: message.Message,
-        response_type: (
-            type[BluetoothGATTNotifyResponse]
-            | type[BluetoothGATTReadResponse]
-            | type[BluetoothGATTWriteResponse]
-        ),
-        timeout: float = 10.0,
+            self,
+            address: int,
+            handle: int,
+            request: message.Message,
+            response_type: (
+                    type[BluetoothGATTNotifyResponse]
+                    | type[BluetoothGATTReadResponse]
+                    | type[BluetoothGATTWriteResponse]
+            ),
+            timeout: float = 10.0,
     ) -> message.Message:
         message_filter = partial(on_bluetooth_handle_message, address, handle)
         msg_types = (response_type, BluetoothGATTErrorResponse)
@@ -453,7 +451,7 @@ class APIClient(APIClientBase):
         return resp
 
     def _unsub_bluetooth_advertisements(
-        self, unsub_callback: Callable[[], None]
+            self, unsub_callback: Callable[[], None]
     ) -> None:
         """Unsubscribe Bluetooth advertisements if connected."""
         if self._connection is not None:
@@ -461,7 +459,7 @@ class APIClient(APIClientBase):
             self._connection.send_message(UnsubscribeBluetoothLEAdvertisementsRequest())
 
     def subscribe_bluetooth_le_advertisements(
-        self, on_bluetooth_le_advertisement: Callable[[BluetoothLEAdvertisement], None]
+            self, on_bluetooth_le_advertisement: Callable[[BluetoothLEAdvertisement], None]
     ) -> Callable[[], None]:
         unsub_callback = self._get_connection().send_message_callback_response(
             SubscribeBluetoothLEAdvertisementsRequest(flags=0),
@@ -474,7 +472,7 @@ class APIClient(APIClientBase):
         return partial(self._unsub_bluetooth_advertisements, unsub_callback)
 
     def subscribe_bluetooth_le_raw_advertisements(
-        self, on_advertisements: Callable[[BluetoothLERawAdvertisementsResponse], None]
+            self, on_advertisements: Callable[[BluetoothLERawAdvertisementsResponse], None]
     ) -> Callable[[], None]:
         unsub_callback = self._get_connection().send_message_callback_response(
             SubscribeBluetoothLEAdvertisementsRequest(
@@ -486,8 +484,8 @@ class APIClient(APIClientBase):
         return partial(self._unsub_bluetooth_advertisements, unsub_callback)
 
     def subscribe_bluetooth_connections_free(
-        self,
-        on_bluetooth_connections_free_update: Callable[[int, int, list[int]], None],
+            self,
+            on_bluetooth_connections_free_update: Callable[[int, int, list[int]], None],
     ) -> Callable[[], None]:
         return self._get_connection().send_message_callback_response(
             SubscribeBluetoothConnectionsFreeRequest(),
@@ -499,10 +497,10 @@ class APIClient(APIClientBase):
         )
 
     def subscribe_bluetooth_scanner_state(
-        self,
-        on_bluetooth_scanner_state: Callable[
-            [BluetoothScannerStateResponseModel], None
-        ],
+            self,
+            on_bluetooth_scanner_state: Callable[
+                [BluetoothScannerStateResponseModel], None
+            ],
     ) -> Callable[[], None]:
         """Subscribe to Bluetooth scanner state updates."""
         return self._get_connection().add_message_callback(
@@ -518,14 +516,14 @@ class APIClient(APIClientBase):
         self._get_connection().send_message(BluetoothScannerSetModeRequest(mode=mode))
 
     async def bluetooth_device_connect(  # pylint: disable=too-many-locals, too-many-branches
-        self,
-        address: int,
-        on_bluetooth_connection_state: Callable[[bool, int, int], None],
-        timeout: float = DEFAULT_BLE_TIMEOUT,
-        disconnect_timeout: float = DEFAULT_BLE_DISCONNECT_TIMEOUT,
-        feature_flags: int = 0,
-        has_cache: bool = False,
-        address_type: int | None = None,
+            self,
+            address: int,
+            on_bluetooth_connection_state: Callable[[bool, int, int], None],
+            timeout: float = DEFAULT_BLE_TIMEOUT,
+            disconnect_timeout: float = DEFAULT_BLE_DISCONNECT_TIMEOUT,
+            feature_flags: int = 0,
+            has_cache: bool = False,
+            address_type: int | None = None,
     ) -> Callable[[], None]:
         connect_future: asyncio.Future[None] = self._loop.create_future()
 
@@ -616,7 +614,7 @@ class APIClient(APIClientBase):
         return unsub
 
     async def _bluetooth_device_disconnect_guard_timeout(
-        self, address: int, timeout: float
+            self, address: int, timeout: float
     ) -> bool:
         """Disconnect from a Bluetooth device and guard against timeout.
 
@@ -635,7 +633,7 @@ class APIClient(APIClientBase):
         return True
 
     async def bluetooth_device_pair(
-        self, address: int, timeout: float = DEFAULT_BLE_TIMEOUT
+            self, address: int, timeout: float = DEFAULT_BLE_TIMEOUT
     ) -> BluetoothDevicePairing:
         return BluetoothDevicePairing.from_pb(
             await self._bluetooth_device_request_watch_connection(
@@ -647,7 +645,7 @@ class APIClient(APIClientBase):
         )
 
     async def bluetooth_device_unpair(
-        self, address: int, timeout: float = DEFAULT_BLE_TIMEOUT
+            self, address: int, timeout: float = DEFAULT_BLE_TIMEOUT
     ) -> BluetoothDeviceUnpairing:
         return BluetoothDeviceUnpairing.from_pb(
             await self._bluetooth_device_request_watch_connection(
@@ -659,7 +657,7 @@ class APIClient(APIClientBase):
         )
 
     async def bluetooth_device_clear_cache(
-        self, address: int, timeout: float = DEFAULT_BLE_TIMEOUT
+            self, address: int, timeout: float = DEFAULT_BLE_TIMEOUT
     ) -> BluetoothDeviceClearCache:
         return BluetoothDeviceClearCache.from_pb(
             await self._bluetooth_device_request_watch_connection(
@@ -671,7 +669,7 @@ class APIClient(APIClientBase):
         )
 
     async def bluetooth_device_disconnect(
-        self, address: int, timeout: float = DEFAULT_BLE_DISCONNECT_TIMEOUT
+            self, address: int, timeout: float = DEFAULT_BLE_DISCONNECT_TIMEOUT
     ) -> None:
         """Disconnect from a Bluetooth device."""
         await self._bluetooth_device_request(
@@ -683,11 +681,11 @@ class APIClient(APIClientBase):
         )
 
     async def _bluetooth_device_request_watch_connection(
-        self,
-        address: int,
-        request_type: BluetoothDeviceRequestType,
-        msg_types: tuple[type[message.Message], ...],
-        timeout: float,
+            self,
+            address: int,
+            request_type: BluetoothDeviceRequestType,
+            msg_types: tuple[type[message.Message], ...],
+            timeout: float,
     ) -> message.Message:
         """Send a BluetoothDeviceRequest watch for the connection state to change."""
         types_with_response = (BluetoothDeviceConnectionResponse, *msg_types)
@@ -702,10 +700,10 @@ class APIClient(APIClientBase):
         return response
 
     def _raise_for_ble_connection_change(
-        self,
-        address: int,
-        response: BluetoothDeviceConnectionResponse,
-        msg_types: tuple[type[message.Message], ...],
+            self,
+            address: int,
+            response: BluetoothDeviceConnectionResponse,
+            msg_types: tuple[type[message.Message], ...],
     ) -> None:
         """Raise an exception if the connection status changed."""
         if type(response) is not BluetoothDeviceConnectionResponse:
@@ -727,12 +725,12 @@ class APIClient(APIClientBase):
         )
 
     async def _bluetooth_device_request(
-        self,
-        address: int,
-        request_type: BluetoothDeviceRequestType,
-        predicate_func: Callable[[BluetoothDeviceConnectionResponse], bool],
-        msg_types: tuple[type[message.Message], ...],
-        timeout: float,
+            self,
+            address: int,
+            request_type: BluetoothDeviceRequestType,
+            predicate_func: Callable[[BluetoothDeviceConnectionResponse], bool],
+            msg_types: tuple[type[message.Message], ...],
+            timeout: float,
     ) -> message.Message:
         """Send a BluetoothDeviceRequest and wait for a response."""
         req = BluetoothDeviceRequest(address=address, request_type=request_type)
@@ -746,7 +744,7 @@ class APIClient(APIClientBase):
         return response
 
     async def bluetooth_gatt_get_services(
-        self, address: int
+            self, address: int
     ) -> ESPHomeBluetoothGATTServices:
         error_types = (BluetoothGATTErrorResponse, BluetoothDeviceConnectionResponse)
         append_types = (*error_types, BluetoothGATTGetServicesResponse)
@@ -773,10 +771,10 @@ class APIClient(APIClientBase):
         return ESPHomeBluetoothGATTServices(address=address, services=services)  # type: ignore[call-arg]
 
     async def bluetooth_gatt_read(
-        self,
-        address: int,
-        handle: int,
-        timeout: float = DEFAULT_BLE_TIMEOUT,
+            self,
+            address: int,
+            handle: int,
+            timeout: float = DEFAULT_BLE_TIMEOUT,
     ) -> bytearray:
         return await self._bluetooth_gatt_read(
             BluetoothGATTReadRequest,
@@ -786,10 +784,10 @@ class APIClient(APIClientBase):
         )
 
     async def bluetooth_gatt_read_descriptor(
-        self,
-        address: int,
-        handle: int,
-        timeout: float = DEFAULT_BLE_TIMEOUT,
+            self,
+            address: int,
+            handle: int,
+            timeout: float = DEFAULT_BLE_TIMEOUT,
     ) -> bytearray:
         """Read a GATT descriptor."""
         return await self._bluetooth_gatt_read(
@@ -800,13 +798,13 @@ class APIClient(APIClientBase):
         )
 
     async def _bluetooth_gatt_read(
-        self,
-        req_type: (
-            type[BluetoothGATTReadDescriptorRequest] | type[BluetoothGATTReadRequest]
-        ),
-        address: int,
-        handle: int,
-        timeout: float,
+            self,
+            req_type: (
+                    type[BluetoothGATTReadDescriptorRequest] | type[BluetoothGATTReadRequest]
+            ),
+            address: int,
+            handle: int,
+            timeout: float,
     ) -> bytearray:
         """Perform a GATT read."""
         resp = await self._send_bluetooth_message_await_response(
@@ -821,12 +819,12 @@ class APIClient(APIClientBase):
         return bytearray(resp.data)
 
     async def bluetooth_gatt_write(
-        self,
-        address: int,
-        handle: int,
-        data: bytes,
-        response: bool,
-        timeout: float = DEFAULT_BLE_TIMEOUT,
+            self,
+            address: int,
+            handle: int,
+            data: bytes,
+            response: bool,
+            timeout: float = DEFAULT_BLE_TIMEOUT,
     ) -> None:
         await self._bluetooth_gatt_write(
             address,
@@ -837,12 +835,12 @@ class APIClient(APIClientBase):
         )
 
     async def bluetooth_gatt_write_descriptor(
-        self,
-        address: int,
-        handle: int,
-        data: bytes,
-        timeout: float = DEFAULT_BLE_TIMEOUT,
-        wait_for_response: bool = True,
+            self,
+            address: int,
+            handle: int,
+            data: bytes,
+            timeout: float = DEFAULT_BLE_TIMEOUT,
+            wait_for_response: bool = True,
     ) -> None:
         await self._bluetooth_gatt_write(
             address,
@@ -853,12 +851,12 @@ class APIClient(APIClientBase):
         )
 
     async def _bluetooth_gatt_write(
-        self,
-        address: int,
-        handle: int,
-        req: BluetoothGATTWriteDescriptorRequest | BluetoothGATTWriteRequest,
-        timeout: float,
-        wait_for_response: bool,
+            self,
+            address: int,
+            handle: int,
+            req: BluetoothGATTWriteDescriptorRequest | BluetoothGATTWriteRequest,
+            timeout: float,
+            wait_for_response: bool,
     ) -> None:
         """Perform a GATT write to a char or descriptor."""
         req.address = address
@@ -875,11 +873,11 @@ class APIClient(APIClientBase):
         )
 
     async def bluetooth_gatt_start_notify(
-        self,
-        address: int,
-        handle: int,
-        on_bluetooth_gatt_notify: Callable[[int, bytearray], None],
-        timeout: float = 10.0,
+            self,
+            address: int,
+            handle: int,
+            on_bluetooth_gatt_notify: Callable[[int, bytearray], None],
+            timeout: float = 10.0,
     ) -> tuple[Callable[[], Coroutine[Any, Any, None]], Callable[[], None]]:
         """Start a notify session for a GATT characteristic.
 
@@ -926,9 +924,9 @@ class APIClient(APIClientBase):
         return stop_notify, remove_callback
 
     def subscribe_home_assistant_states(
-        self,
-        on_state_sub: Callable[[str, str | None], None],
-        on_state_request: Callable[[str, str | None], None] | None = None,
+            self,
+            on_state_sub: Callable[[str, str | None], None],
+            on_state_request: Callable[[str, str | None], None] | None = None,
     ) -> None:
         self._get_connection().send_message_callback_response(
             SubscribeHomeAssistantStatesRequest(),
@@ -941,11 +939,11 @@ class APIClient(APIClientBase):
         )
 
     def subscribe_home_assistant_states_and_services(
-        self,
-        on_state: Callable[[EntityState], None],
-        on_service_call: Callable[[HomeassistantServiceCall], None],
-        on_state_sub: Callable[[str, str | None], None],
-        on_state_request: Callable[[str, str | None], None] | None = None,
+            self,
+            on_state: Callable[[EntityState], None],
+            on_service_call: Callable[[HomeassistantServiceCall], None],
+            on_state_sub: Callable[[str, str | None], None],
+            on_state_request: Callable[[str, str | None], None] | None = None,
     ) -> None:
         """Subscribe to all state updates and service calls in a single request.
 
@@ -982,7 +980,7 @@ class APIClient(APIClientBase):
         )
 
     def send_home_assistant_state(
-        self, entity_id: str, attribute: str | None, state: str
+            self, entity_id: str, attribute: str | None, state: str
     ) -> None:
         self._get_connection().send_message(
             HomeAssistantStateResponse(
@@ -993,12 +991,12 @@ class APIClient(APIClientBase):
         )
 
     def cover_command(
-        self,
-        key: int,
-        position: float | None = None,
-        tilt: float | None = None,
-        stop: bool = False,
-        device_id: int = 0,
+            self,
+            key: int,
+            position: float | None = None,
+            tilt: float | None = None,
+            stop: bool = False,
+            device_id: int = 0,
     ) -> None:
         connection = self._get_connection()
         req = CoverCommandRequest(key=key, device_id=device_id)
@@ -1026,15 +1024,15 @@ class APIClient(APIClientBase):
         connection.send_message(req)
 
     def fan_command(
-        self,
-        key: int,
-        state: bool | None = None,
-        speed: FanSpeed | None = None,
-        speed_level: int | None = None,
-        oscillating: bool | None = None,
-        direction: FanDirection | None = None,
-        preset_mode: str | None = None,
-        device_id: int = 0,
+            self,
+            key: int,
+            state: bool | None = None,
+            speed: FanSpeed | None = None,
+            speed_level: int | None = None,
+            oscillating: bool | None = None,
+            direction: FanDirection | None = None,
+            preset_mode: str | None = None,
+            device_id: int = 0,
     ) -> None:
         req = FanCommandRequest(key=key, device_id=device_id)
         if state is not None:
@@ -1058,21 +1056,21 @@ class APIClient(APIClientBase):
         self._get_connection().send_message(req)
 
     def light_command(  # pylint: disable=too-many-branches
-        self,
-        key: int,
-        state: bool | None = None,
-        brightness: float | None = None,
-        color_mode: int | None = None,
-        color_brightness: float | None = None,
-        rgb: tuple[float, float, float] | None = None,
-        white: float | None = None,
-        color_temperature: float | None = None,
-        cold_white: float | None = None,
-        warm_white: float | None = None,
-        transition_length: float | None = None,
-        flash_length: float | None = None,
-        effect: str | None = None,
-        device_id: int = 0,
+            self,
+            key: int,
+            state: bool | None = None,
+            brightness: float | None = None,
+            color_mode: int | None = None,
+            color_brightness: float | None = None,
+            rgb: tuple[float, float, float] | None = None,
+            white: float | None = None,
+            color_temperature: float | None = None,
+            cold_white: float | None = None,
+            warm_white: float | None = None,
+            transition_length: float | None = None,
+            flash_length: float | None = None,
+            effect: str | None = None,
+            device_id: int = 0,
     ) -> None:
         req = LightCommandRequest(key=key, device_id=device_id)
         if state is not None:
@@ -1121,19 +1119,19 @@ class APIClient(APIClientBase):
         )
 
     def climate_command(  # pylint: disable=too-many-branches
-        self,
-        key: int,
-        mode: ClimateMode | None = None,
-        target_temperature: float | None = None,
-        target_temperature_low: float | None = None,
-        target_temperature_high: float | None = None,
-        fan_mode: ClimateFanMode | None = None,
-        swing_mode: ClimateSwingMode | None = None,
-        custom_fan_mode: str | None = None,
-        preset: ClimatePreset | None = None,
-        custom_preset: str | None = None,
-        target_humidity: float | None = None,
-        device_id: int = 0,
+            self,
+            key: int,
+            mode: ClimateMode | None = None,
+            target_temperature: float | None = None,
+            target_temperature_low: float | None = None,
+            target_temperature_high: float | None = None,
+            fan_mode: ClimateFanMode | None = None,
+            swing_mode: ClimateSwingMode | None = None,
+            custom_fan_mode: str | None = None,
+            preset: ClimatePreset | None = None,
+            custom_preset: str | None = None,
+            target_humidity: float | None = None,
+            device_id: int = 0,
     ) -> None:
         connection = self._get_connection()
         req = ClimateCommandRequest(key=key, device_id=device_id)
@@ -1182,7 +1180,7 @@ class APIClient(APIClientBase):
         )
 
     def date_command(
-        self, key: int, year: int, month: int, day: int, device_id: int = 0
+            self, key: int, year: int, month: int, day: int, device_id: int = 0
     ) -> None:
         self._get_connection().send_message(
             DateCommandRequest(
@@ -1191,7 +1189,7 @@ class APIClient(APIClientBase):
         )
 
     def time_command(
-        self, key: int, hour: int, minute: int, second: int, device_id: int = 0
+            self, key: int, hour: int, minute: int, second: int, device_id: int = 0
     ) -> None:
         self._get_connection().send_message(
             TimeCommandRequest(
@@ -1200,10 +1198,10 @@ class APIClient(APIClientBase):
         )
 
     def datetime_command(
-        self,
-        key: int,
-        epoch_seconds: int,
-        device_id: int = 0,
+            self,
+            key: int,
+            epoch_seconds: int,
+            device_id: int = 0,
     ) -> None:
         self._get_connection().send_message(
             DateTimeCommandRequest(
@@ -1219,13 +1217,13 @@ class APIClient(APIClientBase):
         )
 
     def siren_command(
-        self,
-        key: int,
-        state: bool | None = None,
-        tone: str | None = None,
-        volume: float | None = None,
-        duration: int | None = None,
-        device_id: int = 0,
+            self,
+            key: int,
+            state: bool | None = None,
+            tone: str | None = None,
+            volume: float | None = None,
+            duration: int | None = None,
+            device_id: int = 0,
     ) -> None:
         req = SirenCommandRequest(key=key, device_id=device_id)
         if state is not None:
@@ -1248,11 +1246,11 @@ class APIClient(APIClientBase):
         )
 
     def lock_command(
-        self,
-        key: int,
-        command: LockCommand,
-        code: str | None = None,
-        device_id: int = 0,
+            self,
+            key: int,
+            command: LockCommand,
+            code: str | None = None,
+            device_id: int = 0,
     ) -> None:
         req = LockCommandRequest(key=key, command=command, device_id=device_id)
         if code is not None:
@@ -1260,11 +1258,11 @@ class APIClient(APIClientBase):
         self._get_connection().send_message(req)
 
     def valve_command(
-        self,
-        key: int,
-        position: float | None = None,
-        stop: bool = False,
-        device_id: int = 0,
+            self,
+            key: int,
+            position: float | None = None,
+            stop: bool = False,
+            device_id: int = 0,
     ) -> None:
         req = ValveCommandRequest(key=key, device_id=device_id)
         if position is not None:
@@ -1275,14 +1273,14 @@ class APIClient(APIClientBase):
         self._get_connection().send_message(req)
 
     def media_player_command(
-        self,
-        key: int,
-        *,
-        command: MediaPlayerCommand | None = None,
-        volume: float | None = None,
-        media_url: str | None = None,
-        announcement: bool | None = None,
-        device_id: int = 0,
+            self,
+            key: int,
+            *,
+            command: MediaPlayerCommand | None = None,
+            volume: float | None = None,
+            media_url: str | None = None,
+            announcement: bool | None = None,
+            device_id: int = 0,
     ) -> None:
         req = MediaPlayerCommandRequest(key=key, device_id=device_id)
         if command is not None:
@@ -1305,14 +1303,14 @@ class APIClient(APIClientBase):
         )
 
     def update_command(
-        self, key: int, command: UpdateCommand, device_id: int = 0
+            self, key: int, command: UpdateCommand, device_id: int = 0
     ) -> None:
         self._get_connection().send_message(
             UpdateCommandRequest(key=key, command=command, device_id=device_id)
         )
 
     def execute_service(
-        self, service: UserService, data: ExecuteServiceDataType
+            self, service: UserService, data: ExecuteServiceDataType
     ) -> None:
         connection = self._get_connection()
         req = ExecuteServiceRequest(key=service.key)
@@ -1353,27 +1351,27 @@ class APIClient(APIClientBase):
         self._request_image(stream=True)
 
     def subscribe_voice_assistant(
-        self,
-        *,
-        handle_start: Callable[
-            [str, int, VoiceAssistantAudioSettingsModel, str | None],
-            Coroutine[Any, Any, int | None],
-        ],
-        handle_stop: Callable[[bool], Coroutine[Any, Any, None]],
-        handle_audio: (
-            Callable[
-                [bytes],
-                Coroutine[Any, Any, None],
-            ]
-            | None
-        ) = None,
-        handle_announcement_finished: (
-            Callable[
-                [VoiceAssistantAnnounceFinishedModel],
-                Coroutine[Any, Any, None],
-            ]
-            | None
-        ) = None,
+            self,
+            *,
+            handle_start: Callable[
+                [str, int, VoiceAssistantAudioSettingsModel, str | None],
+                Coroutine[Any, Any, int | None],
+            ],
+            handle_stop: Callable[[bool], Coroutine[Any, Any, None]],
+            handle_audio: (
+                    Callable[
+                        [bytes],
+                        Coroutine[Any, Any, None],
+                    ]
+                    | None
+            ) = None,
+            handle_announcement_finished: (
+                    Callable[
+                        [VoiceAssistantAnnounceFinishedModel],
+                        Coroutine[Any, Any, None],
+                    ]
+                    | None
+            ) = None,
     ) -> Callable[[], None]:
         """Subscribes to voice assistant messages from the device.
 
@@ -1452,9 +1450,8 @@ class APIClient(APIClientBase):
         )
 
         if handle_announcement_finished is not None:
-
             def _on_voice_assistant_announcement_finished(
-                msg: VoiceAssistantAnnounceFinished,
+                    msg: VoiceAssistantAnnounceFinished,
             ) -> None:
                 finished = VoiceAssistantAnnounceFinishedModel.from_pb(msg)
                 self._create_background_task(handle_announcement_finished(finished))
@@ -1480,7 +1477,7 @@ class APIClient(APIClientBase):
         return unsub
 
     def send_voice_assistant_event(
-        self, event_type: VoiceAssistantEventType, data: dict[str, str] | None
+            self, event_type: VoiceAssistantEventType, data: dict[str, str] | None
     ) -> None:
         req = VoiceAssistantEventResponse(event_type=event_type)
         if data is not None:
@@ -1498,13 +1495,13 @@ class APIClient(APIClientBase):
         self._get_connection().send_message(req)
 
     def send_voice_assistant_timer_event(
-        self,
-        event_type: VoiceAssistantTimerEventType,
-        timer_id: str,
-        name: str | None,
-        total_seconds: int,
-        seconds_left: int,
-        is_active: bool,
+            self,
+            event_type: VoiceAssistantTimerEventType,
+            timer_id: str,
+            name: str | None,
+            total_seconds: int,
+            seconds_left: int,
+            is_active: bool,
     ) -> None:
         req = VoiceAssistantTimerEventResponse(
             event_type=event_type,
@@ -1517,12 +1514,12 @@ class APIClient(APIClientBase):
         self._get_connection().send_message(req)
 
     async def send_voice_assistant_announcement_await_response(
-        self,
-        media_id: str,
-        timeout: float,
-        text: str = "",
-        preannounce_media_id: str = "",
-        start_conversation: bool = False,
+            self,
+            media_id: str,
+            timeout: float,
+            text: str = "",
+            preannounce_media_id: str = "",
+            start_conversation: bool = False,
     ) -> VoiceAssistantAnnounceFinishedModel:
         resp = await self._get_connection().send_message_await_response(
             VoiceAssistantAnnounceRequest(
@@ -1537,9 +1534,9 @@ class APIClient(APIClientBase):
         return VoiceAssistantAnnounceFinishedModel.from_pb(resp)
 
     async def get_voice_assistant_configuration(
-        self,
-        timeout: float,
-        external_wake_words: list[VoiceAssistantExternalWakeWordModel] | None = None,
+            self,
+            timeout: float,
+            external_wake_words: list[VoiceAssistantExternalWakeWordModel] | None = None,
     ) -> VoiceAssistantConfigurationResponseModel:
         if external_wake_words is None:
             external_wake_words = []
@@ -1565,17 +1562,17 @@ class APIClient(APIClientBase):
         return VoiceAssistantConfigurationResponseModel.from_pb(resp)
 
     async def set_voice_assistant_configuration(
-        self, active_wake_words: list[str]
+            self, active_wake_words: list[str]
     ) -> None:
         req = VoiceAssistantSetConfiguration(active_wake_words=active_wake_words)
         self._get_connection().send_message(req)
 
     def alarm_control_panel_command(
-        self,
-        key: int,
-        command: AlarmControlPanelCommand,
-        code: str | None = None,
-        device_id: int = 0,
+            self,
+            key: int,
+            command: AlarmControlPanelCommand,
+            code: str | None = None,
+            device_id: int = 0,
     ) -> None:
         req = AlarmControlPanelCommandRequest(
             key=key, command=command, device_id=device_id
@@ -1585,8 +1582,8 @@ class APIClient(APIClientBase):
         self._get_connection().send_message(req)
 
     async def noise_encryption_set_key(
-        self,
-        key: bytes,
+            self,
+            key: bytes,
     ) -> bool:
         """Set the noise encryption key."""
         req = NoiseEncryptionSetKeyRequest(key=key)
@@ -1596,11 +1593,11 @@ class APIClient(APIClientBase):
         return NoiseEncryptionSetKeyResponseModel.from_pb(resp).success
 
     def send_homeassistant_action_response(
-        self,
-        call_id: int,
-        success: bool = True,
-        error_message: str = "",
-        response_data: bytes = b"",
+            self,
+            call_id: int,
+            success: bool = True,
+            error_message: str = "",
+            response_data: bytes = b"",
     ) -> None:
         """Send a service call response back to ESPHome."""
         req = HomeassistantActionResponse()
