@@ -8,12 +8,19 @@ sockets with Protocol Buffers.
 ## Project Structure
 
 - `Program.cs` - Main application entry point
-- `ESP.cs` - Core ESPHome API client implementation
-    - Connection management (Init, Run, Cleanup)
-    - Protocol message handling (SendMessage, ReadMessage)
-    - VarInt encoding/decoding
+- `ESP.cs` - High-level ESPHome API client
+    - Connection initialization (Init)
+    - Device workflow orchestration (Run)
+    - Hello and authentication flow
     - Entity discovery and state subscription
     - Switch control functionality
+    - Message draining and cleanup
+- `ESPHomeConnection.cs` - Low-level protocol connection handler
+    - TCP socket and NetworkStream management
+    - Protocol message framing (SendMessage, ReadMessage)
+    - VarInt encoding/decoding
+    - Preamble validation and error handling
+    - Stream alignment management
 - `protobuf_out/` - Generated C# classes from Protocol Buffer definitions
     - `Api.cs` - Main protobuf message types (HelloRequest, HelloResponse, DisconnectRequest, SwitchCommandRequest, etc.)
     - `ApiOptions.cs` - Protocol options
@@ -49,14 +56,36 @@ Each message follows this structure:
 - **Message Draining**: Before disconnect, drain any pending messages to ensure clean shutdown
 - **Error Handling**: Catch `EndOfStreamException` for connection closures and `InvalidDataException` for protocol errors
 
+## Architecture
+
+The codebase follows a layered architecture:
+
+### Layer 1: Protocol Layer (ESPHomeConnection)
+- Manages low-level TCP socket communication
+- Handles protocol framing (preamble, VarInt, protobuf data)
+- Ensures stream alignment and validates message structure
+- Provides clean abstraction over raw socket operations
+
+### Layer 2: API Layer (ESP)
+- Implements ESPHome-specific workflows (hello, auth, discovery, control)
+- Manages device state and entity tracking
+- Orchestrates message sequences for operations
+- Handles timeout management and message draining
+
+### Layer 3: Application Layer (Program)
+- Entry point that instantiates and runs the ESP client
+- Can be extended for specific use cases
+
 ## Code Guidelines
 
-- Keep implementation simple without unnecessary complexity or classes
+- Keep implementation simple and maintain clear separation of concerns
+- Low-level protocol logic belongs in `ESPHomeConnection`
+- High-level workflows and business logic belong in `ESP`
 - Use async/await for all I/O operations
 - Follow the Python reference implementation patterns from `python_reference/connection.py`
 - Handle errors gracefully with try-catch blocks
 - Always perform proper disconnect sequence before closing socket
-- Check `stream.DataAvailable` before attempting to read messages to maintain stream alignment
+- Check `connection.DataAvailable` before attempting to read messages to maintain stream alignment
 - Use visual indicators in console output (→ for sent, ← for received, ⚠ for warnings, ✓ for success)
 
 ## Testing
