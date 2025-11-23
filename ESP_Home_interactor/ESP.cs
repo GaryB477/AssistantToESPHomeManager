@@ -30,7 +30,27 @@ public class ESP
         if (_socket == null || _stream == null) throw new InvalidOperationException("Socket or stream not initialized") ;
         await SendHelloWorld(_stream);
         await Authenticate(_stream);
-        await ListAndSubscribeToEntities(_stream);
+        var switches = await ListAndSubscribeToEntities(_stream);
+
+        // Example: Toggle the first switch if any found
+        if (switches.Count > 0)
+        {
+            var firstSwitch = switches.First();
+            Console.WriteLine($"\nToggling switch '{firstSwitch.Value}' (key: {firstSwitch.Key})...");
+
+            // Turn ON
+            await SetSwitchState(_stream, firstSwitch.Key, true, firstSwitch.Value);
+
+            // Listen for state updates for 2 seconds
+            await ListenForStateUpdates(_stream, switches, 2000);
+
+            // Turn OFF
+            await SetSwitchState(_stream, firstSwitch.Key, false, firstSwitch.Value);
+
+            // Listen for state updates for 2 seconds
+            await ListenForStateUpdates(_stream, switches, 2000);
+        }
+
         await Cleanup(_socket, _stream);
     }
     
@@ -101,11 +121,82 @@ public class ESP
         await SendMessage(stream, 3, authRequest);
         Console.WriteLine("Sent AuthenticationRequest");
 
-        // Note: According to the protocol, the server may not send AuthenticationResponse
-        // if password authentication is not required. We should just proceed.
+        // Read the response - according to ESPHome protocol, the server ALWAYS sends
+        // AuthenticationResponse, even if password authentication is not required
+        var (msgType, msgData) = await ReadMessage(stream);
+
+        if (msgType == 4) // AuthenticationResponse
+        {
+            var authResponse = AuthenticationResponse.Parser.ParseFrom(msgData);
+            if (authResponse.InvalidPassword)
+            {
+                throw new InvalidOperationException("Authentication failed: Invalid password");
+            }
+            Console.WriteLine("Authentication successful");
+        }
+        else
+        {
+            // Received a different message type - this shouldn't happen
+            Console.WriteLine($"Warning: Expected AuthenticationResponse (4) but got message type {msgType}");
+            throw new InvalidOperationException($"Unexpected message type after authentication: {msgType}");
+        }
     }
 
-    private static async Task ListAndSubscribeToEntities(NetworkStream stream)
+    public static async Task SetSwitchState(NetworkStream stream, uint key, bool state, string? name = null)
+    {
+        var switchCommand = new SwitchCommandRequest
+        {
+            Key = key,
+            State = state
+        };
+
+        await SendMessage(stream, 33, switchCommand);
+        var stateName = state ? "ON" : "OFF";
+        var entityName = name != null ? $" '{name}'" : "";
+        Console.WriteLine($"Sent command to turn{entityName} (key: {key}) {stateName}");
+    }
+
+    private static async Task ListenForStateUpdates(NetworkStream stream, Dictionary<uint, string> switches, int milliseconds)
+    {
+        var timeout = Task.Delay(milliseconds);
+        Console.WriteLine($"\nListening for state updates ({milliseconds}ms)...");
+
+        while (!timeout.IsCompleted)
+        {
+            var readTask = ReadMessage(stream);
+            var completedTask = await Task.WhenAny(readTask, timeout);
+
+            if (completedTask == readTask)
+            {
+                try
+                {
+                    var (msgType, msgData) = await readTask;
+
+                    if (msgType == 26) // SwitchStateResponse
+                    {
+                        var switchState = SwitchStateResponse.Parser.ParseFrom(msgData);
+                        if (switches.TryGetValue(switchState.Key, out var name))
+                        {
+                            var state = switchState.State ? "ON" : "OFF";
+                            Console.WriteLine($"  {name}: {state}");
+                        }
+                    }
+                    else
+                    {
+                        // Log other message types for debugging
+                        Console.WriteLine($"  Received message type: {msgType}");
+                    }
+                }
+                catch (EndOfStreamException)
+                {
+                    Console.WriteLine("Connection closed by server");
+                    break;
+                }
+            }
+        }
+    }
+
+    private static async Task<Dictionary<uint, string>> ListAndSubscribeToEntities(NetworkStream stream)
     {
         // Send ListEntitiesRequest
         var listEntitiesRequest = new ListEntitiesRequest();
@@ -131,7 +222,11 @@ public class ESP
                     switchEntities[switchEntity.Key] = switchEntity.Name;
                     Console.WriteLine($"Found switch: {switchEntity.Name} (key: {switchEntity.Key})");
                 }
-                // Ignore other entity types for now
+                else
+                {
+                    // Log ignored entity types for debugging
+                    Console.WriteLine($"Ignoring entity type: {msgType} (length: {msgData.Length} bytes)");
+                }
             }
             catch (EndOfStreamException ex)
             {
@@ -143,7 +238,7 @@ public class ESP
         if (switchEntities.Count == 0)
         {
             Console.WriteLine("No switch entities found");
-            return;
+            return switchEntities;
         }
 
         // Subscribe to state updates
@@ -151,39 +246,12 @@ public class ESP
         await SendMessage(stream, 20, subscribeStatesRequest);
         Console.WriteLine("Sent SubscribeStatesRequest");
 
-        // Read initial states and updates for 5 seconds
-        var timeout = Task.Delay(5000);
-        Console.WriteLine("\nSwitch States:");
-        Console.WriteLine("==============");
+        // Read initial states briefly to show current state
+        Console.WriteLine("\nInitial Switch States:");
+        Console.WriteLine("======================");
+        await ListenForStateUpdates(stream, switchEntities, 1000);
 
-        while (!timeout.IsCompleted)
-        {
-            var readTask = ReadMessage(stream);
-            var completedTask = await Task.WhenAny(readTask, timeout);
-
-            if (completedTask == readTask)
-            {
-                try
-                {
-                    var (msgType, msgData) = await readTask;
-
-                    if (msgType == 26) // SwitchStateResponse
-                    {
-                        var switchState = SwitchStateResponse.Parser.ParseFrom(msgData);
-                        if (switchEntities.TryGetValue(switchState.Key, out var name))
-                        {
-                            var state = switchState.State ? "ON" : "OFF";
-                            Console.WriteLine($"{name}: {state}");
-                        }
-                    }
-                }
-                catch (EndOfStreamException)
-                {
-                    Console.WriteLine("Connection closed by server");
-                    break;
-                }
-            }
-        }
+        return switchEntities;
     }
 
     private static async Task SendMessage(NetworkStream stream, uint messageType, IMessage message)
@@ -213,7 +281,17 @@ public class ESP
             throw new EndOfStreamException("Connection closed by remote host");
 
         if (preamble[0] != 0x00)
-            throw new InvalidDataException($"Invalid preamble: expected 0x00, got 0x{preamble[0]:X2}");
+        {
+            // Log stream position context for debugging
+            var nextBytes = new byte[16];
+            var peekRead = await stream.ReadAsync(nextBytes);
+            var hexDump = peekRead > 0
+                ? BitConverter.ToString(nextBytes, 0, peekRead).Replace("-", " ")
+                : "none";
+            throw new InvalidDataException(
+                $"Invalid preamble: expected 0x00, got 0x{preamble[0]:X2}. " +
+                $"Next {peekRead} bytes: {hexDump}");
+        }
 
         // Read message length as VarInt
         var length = await ReadVarInt(stream);
