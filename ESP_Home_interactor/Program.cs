@@ -11,10 +11,40 @@ var stream = new NetworkStream(socket);
 Console.WriteLine($"Connected to {host}:{port}");
 
 await SendHelloWorld(stream);
-await Cleanup(socket);
+await Cleanup(socket, stream);
 
-static async Task Cleanup(Socket socket)
+static async Task Cleanup(Socket socket, NetworkStream stream)
 {
+    // Send DisconnectRequest
+    var disconnectRequest = new DisconnectRequest();
+    await SendMessage(stream, 5, disconnectRequest);
+    Console.WriteLine("Sent DisconnectRequest");
+
+    // Wait for DisconnectResponse
+    try
+    {
+        var timeout = Task.Delay(5000);
+        var readTask = ReadMessage(stream);
+        var completedTask = await Task.WhenAny(readTask, timeout);
+
+        if (completedTask == readTask)
+        {
+            var (msgType, msgData) = await readTask;
+            if (msgType == 6) // DisconnectResponse
+            {
+                Console.WriteLine("Received DisconnectResponse");
+            }
+        }
+        else
+        {
+            Console.WriteLine("Disconnect timeout");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Disconnect error: {ex.Message}");
+    }
+
     socket.Close();
     Console.WriteLine("Cleanup completed");
 }
