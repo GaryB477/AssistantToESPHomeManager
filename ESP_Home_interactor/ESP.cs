@@ -29,6 +29,8 @@ public class ESP
     {
         if (_socket == null || _stream == null) throw new InvalidOperationException("Socket or stream not initialized") ;
         await SendHelloWorld(_stream);
+        await Authenticate(_stream);
+        await ListAndSubscribeToEntities(_stream);
         await Cleanup(_socket, _stream);
     }
     
@@ -65,10 +67,10 @@ public class ESP
         socket.Close();
         Console.WriteLine("Cleanup completed");
     }
-
+    
     private static async Task SendHelloWorld(NetworkStream stream)
     {
-// Send HelloRequest
+        // Send HelloRequest
         var helloRequest = new HelloRequest
         {
             ClientInfo = "ESP_Home_interactor",
@@ -79,7 +81,7 @@ public class ESP
         await SendMessage(stream, 1, helloRequest);
         Console.WriteLine("Sent HelloRequest");
 
-// Read HelloResponse
+        // Read HelloResponse
         var (msgType, msgData) = await ReadMessage(stream);
         Console.WriteLine($"Received message type: {msgType}");
 
@@ -92,30 +94,172 @@ public class ESP
         }
     }
 
+    private static async Task Authenticate(NetworkStream stream)
+    {
+        // Send AuthenticationRequest (empty password)
+        var authRequest = new AuthenticationRequest();
+        await SendMessage(stream, 3, authRequest);
+        Console.WriteLine("Sent AuthenticationRequest");
+
+        // Note: According to the protocol, the server may not send AuthenticationResponse
+        // if password authentication is not required. We should just proceed.
+    }
+
+    private static async Task ListAndSubscribeToEntities(NetworkStream stream)
+    {
+        // Send ListEntitiesRequest
+        var listEntitiesRequest = new ListEntitiesRequest();
+        await SendMessage(stream, 11, listEntitiesRequest);
+        Console.WriteLine("Sent ListEntitiesRequest");
+
+        // Read entity list
+        var switchEntities = new Dictionary<uint, string>();
+        while (true)
+        {
+            try
+            {
+                var (msgType, msgData) = await ReadMessage(stream);
+
+                if (msgType == 19) // ListEntitiesDoneResponse
+                {
+                    Console.WriteLine("Entity list complete");
+                    break;
+                }
+                else if (msgType == 17) // ListEntitiesSwitchResponse
+                {
+                    var switchEntity = ListEntitiesSwitchResponse.Parser.ParseFrom(msgData);
+                    switchEntities[switchEntity.Key] = switchEntity.Name;
+                    Console.WriteLine($"Found switch: {switchEntity.Name} (key: {switchEntity.Key})");
+                }
+                // Ignore other entity types for now
+            }
+            catch (EndOfStreamException ex)
+            {
+                Console.WriteLine($"Connection closed during entity listing: {ex.Message}");
+                break;
+            }
+        }
+
+        if (switchEntities.Count == 0)
+        {
+            Console.WriteLine("No switch entities found");
+            return;
+        }
+
+        // Subscribe to state updates
+        var subscribeStatesRequest = new SubscribeStatesRequest();
+        await SendMessage(stream, 20, subscribeStatesRequest);
+        Console.WriteLine("Sent SubscribeStatesRequest");
+
+        // Read initial states and updates for 5 seconds
+        var timeout = Task.Delay(5000);
+        Console.WriteLine("\nSwitch States:");
+        Console.WriteLine("==============");
+
+        while (!timeout.IsCompleted)
+        {
+            var readTask = ReadMessage(stream);
+            var completedTask = await Task.WhenAny(readTask, timeout);
+
+            if (completedTask == readTask)
+            {
+                try
+                {
+                    var (msgType, msgData) = await readTask;
+
+                    if (msgType == 26) // SwitchStateResponse
+                    {
+                        var switchState = SwitchStateResponse.Parser.ParseFrom(msgData);
+                        if (switchEntities.TryGetValue(switchState.Key, out var name))
+                        {
+                            var state = switchState.State ? "ON" : "OFF";
+                            Console.WriteLine($"{name}: {state}");
+                        }
+                    }
+                }
+                catch (EndOfStreamException)
+                {
+                    Console.WriteLine("Connection closed by server");
+                    break;
+                }
+            }
+        }
+    }
+
     private static async Task SendMessage(NetworkStream stream, uint messageType, IMessage message)
     {
         var data = message.ToByteArray();
-        var header = new byte[3];
-        header[0] = 0x00; // Preamble
-        header[1] = (byte)data.Length;
-        header[2] = (byte)messageType;
 
-        await stream.WriteAsync(header);
+        // Write preamble (0x00)
+        await stream.WriteAsync(new byte[] { 0x00 });
+
+        // Write message length as VarInt
+        await WriteVarInt(stream, (uint)data.Length);
+
+        // Write message type as VarInt
+        await WriteVarInt(stream, messageType);
+
+        // Write message data
         await stream.WriteAsync(data);
         await stream.FlushAsync();
     }
 
     private static async Task<(uint type, byte[] data)> ReadMessage(NetworkStream stream)
     {
-        var header = new byte[3];
-        await stream.ReadExactlyAsync(header);
+        // Read preamble (0x00)
+        var preamble = new byte[1];
+        var bytesRead = await stream.ReadAsync(preamble);
+        if (bytesRead == 0)
+            throw new EndOfStreamException("Connection closed by remote host");
 
-        var length = header[1];
-        var type = header[2];
+        if (preamble[0] != 0x00)
+            throw new InvalidDataException($"Invalid preamble: expected 0x00, got 0x{preamble[0]:X2}");
 
+        // Read message length as VarInt
+        var length = await ReadVarInt(stream);
+
+        // Read message type as VarInt
+        var type = await ReadVarInt(stream);
+
+        // Read message data
         var data = new byte[length];
-        await stream.ReadExactlyAsync(data);
+        if (length > 0)
+            await stream.ReadExactlyAsync(data);
 
         return (type, data);
+    }
+
+    private static async Task WriteVarInt(NetworkStream stream, uint value)
+    {
+        while (value >= 0x80)
+        {
+            await stream.WriteAsync(new byte[] { (byte)((value & 0x7F) | 0x80) });
+            value >>= 7;
+        }
+        await stream.WriteAsync(new byte[] { (byte)value });
+    }
+
+    private static async Task<uint> ReadVarInt(NetworkStream stream)
+    {
+        uint result = 0;
+        int shift = 0;
+
+        while (true)
+        {
+            var buffer = new byte[1];
+            await stream.ReadExactlyAsync(buffer);
+            byte b = buffer[0];
+
+            result |= (uint)(b & 0x7F) << shift;
+
+            if ((b & 0x80) == 0)
+                break;
+
+            shift += 7;
+            if (shift >= 32)
+                throw new InvalidDataException("VarInt too long");
+        }
+
+        return result;
     }
 }
