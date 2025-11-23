@@ -36,30 +36,71 @@ public class ESP
         if (switches.Count > 0)
         {
             var firstSwitch = switches.First();
-            Console.WriteLine($"\nToggling switch '{firstSwitch.Value}' (key: {firstSwitch.Key})...");
+            Console.WriteLine($"\n━━━ Testing Switch Control ━━━");
 
             // Turn ON
             await SetSwitchState(_stream, firstSwitch.Key, true, firstSwitch.Value);
-
-            // Listen for state updates for 2 seconds
-            await ListenForStateUpdates(_stream, switches, 2000);
+            await ListenForStateUpdates(_stream, switches, 3000);
 
             // Turn OFF
             await SetSwitchState(_stream, firstSwitch.Key, false, firstSwitch.Value);
+            await ListenForStateUpdates(_stream, switches, 3000);
 
-            // Listen for state updates for 2 seconds
-            await ListenForStateUpdates(_stream, switches, 2000);
+            Console.WriteLine($"━━━ Test Complete ━━━\n");
         }
+
+        // Drain any remaining messages before disconnect
+        await DrainMessages(_stream, 500);
 
         await Cleanup(_socket, _stream);
     }
     
+    private static async Task DrainMessages(NetworkStream stream, int milliseconds)
+    {
+        Console.WriteLine($"Draining remaining messages...");
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(milliseconds);
+        int count = 0;
+
+        try
+        {
+            while (!cts.Token.IsCancellationRequested)
+            {
+                // Check if data is available before trying to read
+                if (!stream.DataAvailable)
+                {
+                    await Task.Delay(50, cts.Token);
+                    continue;
+                }
+
+                var (msgType, msgData) = await ReadMessage(stream);
+                count++;
+                Console.WriteLine($"  Drained message type: {msgType}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Timeout reached - this is normal
+        }
+        catch (EndOfStreamException)
+        {
+            // Connection closed
+        }
+
+        if (count > 0)
+        {
+            Console.WriteLine($"Drained {count} pending message(s)\n");
+        }
+    }
+
     private static async Task Cleanup(Socket socket, NetworkStream stream)
     {
+        Console.WriteLine("━━━ Disconnecting ━━━");
+
         // Send DisconnectRequest
         var disconnectRequest = new DisconnectRequest();
         await SendMessage(stream, 5, disconnectRequest);
-        Console.WriteLine("Sent DisconnectRequest");
+        Console.WriteLine("→ Sent DisconnectRequest");
 
         // Wait for DisconnectResponse
         try
@@ -72,20 +113,20 @@ public class ESP
             {
                 var (msgType, msgData) = await readTask;
                 if (msgType == 6) // DisconnectResponse
-                    Console.WriteLine("Received DisconnectResponse");
+                    Console.WriteLine("← Received DisconnectResponse");
             }
             else
             {
-                Console.WriteLine("Disconnect timeout");
+                Console.WriteLine("⚠ Disconnect timeout");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Disconnect error: {ex.Message}");
+            Console.WriteLine($"⚠ Disconnect error: {ex.Message}");
         }
 
         socket.Close();
-        Console.WriteLine("Cleanup completed");
+        Console.WriteLine("✓ Connection closed\n");
     }
     
     private static async Task SendHelloWorld(NetworkStream stream)
@@ -99,18 +140,18 @@ public class ESP
         };
 
         await SendMessage(stream, 1, helloRequest);
-        Console.WriteLine("Sent HelloRequest");
+        Console.WriteLine("→ Sent HelloRequest");
 
         // Read HelloResponse
         var (msgType, msgData) = await ReadMessage(stream);
-        Console.WriteLine($"Received message type: {msgType}");
 
         if (msgType == 2) // HelloResponse
         {
             var helloResponse = HelloResponse.Parser.ParseFrom(msgData);
-            Console.WriteLine($"Server: {helloResponse.ServerInfo}");
-            Console.WriteLine($"API: {helloResponse.ApiVersionMajor}.{helloResponse.ApiVersionMinor}");
-            Console.WriteLine($"Name: {helloResponse.Name}");
+            Console.WriteLine($"← Received HelloResponse");
+            Console.WriteLine($"  Server: {helloResponse.ServerInfo}");
+            Console.WriteLine($"  API: {helloResponse.ApiVersionMajor}.{helloResponse.ApiVersionMinor}");
+            Console.WriteLine($"  Name: {helloResponse.Name}");
         }
     }
 
@@ -119,7 +160,7 @@ public class ESP
         // Send AuthenticationRequest (empty password)
         var authRequest = new AuthenticationRequest();
         await SendMessage(stream, 3, authRequest);
-        Console.WriteLine("Sent AuthenticationRequest");
+        Console.WriteLine("→ Sent AuthenticationRequest");
 
         // Read the response - according to ESPHome protocol, the server ALWAYS sends
         // AuthenticationResponse, even if password authentication is not required
@@ -132,12 +173,12 @@ public class ESP
             {
                 throw new InvalidOperationException("Authentication failed: Invalid password");
             }
-            Console.WriteLine("Authentication successful");
+            Console.WriteLine("← Received AuthenticationResponse (authenticated)");
         }
         else
         {
             // Received a different message type - this shouldn't happen
-            Console.WriteLine($"Warning: Expected AuthenticationResponse (4) but got message type {msgType}");
+            Console.WriteLine($"⚠ Warning: Expected AuthenticationResponse (4) but got message type {msgType}");
             throw new InvalidOperationException($"Unexpected message type after authentication: {msgType}");
         }
     }
@@ -152,47 +193,51 @@ public class ESP
 
         await SendMessage(stream, 33, switchCommand);
         var stateName = state ? "ON" : "OFF";
-        var entityName = name != null ? $" '{name}'" : "";
-        Console.WriteLine($"Sent command to turn{entityName} (key: {key}) {stateName}");
+        var entityName = name != null ? $"'{name}' " : "";
+        Console.WriteLine($"→ Sent SwitchCommand: {entityName}→ {stateName}");
     }
 
     private static async Task ListenForStateUpdates(NetworkStream stream, Dictionary<uint, string> switches, int milliseconds)
     {
-        var timeout = Task.Delay(milliseconds);
-        Console.WriteLine($"\nListening for state updates ({milliseconds}ms)...");
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(milliseconds);
 
-        while (!timeout.IsCompleted)
+        try
         {
-            var readTask = ReadMessage(stream);
-            var completedTask = await Task.WhenAny(readTask, timeout);
-
-            if (completedTask == readTask)
+            while (!cts.Token.IsCancellationRequested)
             {
-                try
+                // Check if data is available before trying to read
+                if (!stream.DataAvailable)
                 {
-                    var (msgType, msgData) = await readTask;
+                    await Task.Delay(50, cts.Token);
+                    continue;
+                }
 
-                    if (msgType == 26) // SwitchStateResponse
+                var (msgType, msgData) = await ReadMessage(stream);
+
+                if (msgType == 26) // SwitchStateResponse
+                {
+                    var switchState = SwitchStateResponse.Parser.ParseFrom(msgData);
+                    if (switches.TryGetValue(switchState.Key, out var name))
                     {
-                        var switchState = SwitchStateResponse.Parser.ParseFrom(msgData);
-                        if (switches.TryGetValue(switchState.Key, out var name))
-                        {
-                            var state = switchState.State ? "ON" : "OFF";
-                            Console.WriteLine($"  {name}: {state}");
-                        }
-                    }
-                    else
-                    {
-                        // Log other message types for debugging
-                        Console.WriteLine($"  Received message type: {msgType}");
+                        var state = switchState.State ? "ON" : "OFF";
+                        Console.WriteLine($"← SwitchState: '{name}' is {state}");
                     }
                 }
-                catch (EndOfStreamException)
+                else
                 {
-                    Console.WriteLine("Connection closed by server");
-                    break;
+                    // Log other message types for debugging
+                    Console.WriteLine($"← Received message type: {msgType}");
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // Timeout reached - this is normal
+        }
+        catch (EndOfStreamException)
+        {
+            Console.WriteLine("✗ Connection closed by server");
         }
     }
 
@@ -201,7 +246,7 @@ public class ESP
         // Send ListEntitiesRequest
         var listEntitiesRequest = new ListEntitiesRequest();
         await SendMessage(stream, 11, listEntitiesRequest);
-        Console.WriteLine("Sent ListEntitiesRequest");
+        Console.WriteLine("\n→ Sent ListEntitiesRequest");
 
         // Read entity list
         var switchEntities = new Dictionary<uint, string>();
@@ -213,42 +258,41 @@ public class ESP
 
                 if (msgType == 19) // ListEntitiesDoneResponse
                 {
-                    Console.WriteLine("Entity list complete");
+                    Console.WriteLine($"← Received ListEntitiesDoneResponse ({switchEntities.Count} switches found)");
                     break;
                 }
                 else if (msgType == 17) // ListEntitiesSwitchResponse
                 {
                     var switchEntity = ListEntitiesSwitchResponse.Parser.ParseFrom(msgData);
                     switchEntities[switchEntity.Key] = switchEntity.Name;
-                    Console.WriteLine($"Found switch: {switchEntity.Name} (key: {switchEntity.Key})");
+                    Console.WriteLine($"← Found switch: '{switchEntity.Name}' (key: {switchEntity.Key})");
                 }
                 else
                 {
                     // Log ignored entity types for debugging
-                    Console.WriteLine($"Ignoring entity type: {msgType} (length: {msgData.Length} bytes)");
+                    Console.WriteLine($"← Ignoring entity type {msgType} ({msgData.Length} bytes)");
                 }
             }
             catch (EndOfStreamException ex)
             {
-                Console.WriteLine($"Connection closed during entity listing: {ex.Message}");
+                Console.WriteLine($"✗ Connection closed during entity listing: {ex.Message}");
                 break;
             }
         }
 
         if (switchEntities.Count == 0)
         {
-            Console.WriteLine("No switch entities found");
+            Console.WriteLine("⚠ No switch entities found");
             return switchEntities;
         }
 
         // Subscribe to state updates
         var subscribeStatesRequest = new SubscribeStatesRequest();
         await SendMessage(stream, 20, subscribeStatesRequest);
-        Console.WriteLine("Sent SubscribeStatesRequest");
+        Console.WriteLine("\n→ Sent SubscribeStatesRequest");
 
         // Read initial states briefly to show current state
-        Console.WriteLine("\nInitial Switch States:");
-        Console.WriteLine("======================");
+        Console.WriteLine("Waiting for initial state updates...");
         await ListenForStateUpdates(stream, switchEntities, 1000);
 
         return switchEntities;
