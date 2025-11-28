@@ -1,5 +1,5 @@
 using System.Net.Sockets;
-using Google.Protobuf;
+using ESP_Home_Interactor.helper;
 
 namespace ESP_Home_Interactor;
 
@@ -7,9 +7,11 @@ namespace ESP_Home_Interactor;
 /// High-level ESPHome API client
 /// Handles device connection, entity discovery, and device control
 /// </summary>
-public class ESP
+public class ESP_Base
 {
-    public ESP(string host = "192.168.0.26", int port = 6053)
+    private readonly Logger _logger = new Logger();
+    
+    public ESP_Base(string host = "192.168.0.26", int port = 6053)
     {
         if (string.IsNullOrEmpty(host)) throw new ArgumentNullException(nameof(host));
         Host = host;
@@ -40,7 +42,8 @@ public class ESP
         if (switches.Count > 0)
         {
             var firstSwitch = switches.First();
-            Console.WriteLine($"\n━━━ Testing Switch Control ━━━");
+            _logger.LogEmpty();
+            _logger.LogSeparator("Testing Switch Control");
 
             // Turn ON
             await SetSwitchState(_connection, firstSwitch.Key, true, firstSwitch.Value);
@@ -50,7 +53,8 @@ public class ESP
             await SetSwitchState(_connection, firstSwitch.Key, false, firstSwitch.Value);
             await ListenForStateUpdates(_connection, switches, 3000);
 
-            Console.WriteLine($"━━━ Test Complete ━━━\n");
+            _logger.LogSeparator("Test Complete");
+            _logger.LogEmpty();
         }
 
         // Drain any remaining messages before disconnect
@@ -59,9 +63,9 @@ public class ESP
         await Cleanup(_connection);
     }
 
-    private static async Task DrainMessages(ESPHomeConnection connection, int milliseconds)
+    private async Task DrainMessages(ESPHomeConnection connection, int milliseconds)
     {
-        Console.WriteLine($"Draining remaining messages...");
+        _logger.Log($"Draining remaining messages...");
         using var cts = new CancellationTokenSource();
         cts.CancelAfter(milliseconds);
         int count = 0;
@@ -79,7 +83,7 @@ public class ESP
 
                 var (msgType, msgData) = await connection.ReadMessage();
                 count++;
-                Console.WriteLine($"  Drained message type: {msgType}");
+                _logger.Log($"  Drained message type: {msgType}");
             }
         }
         catch (OperationCanceledException)
@@ -93,18 +97,18 @@ public class ESP
 
         if (count > 0)
         {
-            Console.WriteLine($"Drained {count} pending message(s)\n");
+            _logger.Log($"Drained {count} pending message(s)\n");
         }
     }
 
-    private static async Task Cleanup(ESPHomeConnection connection)
+    private async Task Cleanup(ESPHomeConnection connection)
     {
-        Console.WriteLine("━━━ Disconnecting ━━━");
+        _logger.LogSeparator("Disconnecting");
 
         // Send DisconnectRequest
         var disconnectRequest = new DisconnectRequest();
         await connection.SendMessage(5, disconnectRequest);
-        Console.WriteLine("→ Sent DisconnectRequest");
+        _logger.LogOutgoing("Sent DisconnectRequest");
 
         // Wait for DisconnectResponse
         try
@@ -117,23 +121,24 @@ public class ESP
             {
                 var (msgType, msgData) = await readTask;
                 if (msgType == 6) // DisconnectResponse
-                    Console.WriteLine("← Received DisconnectResponse");
+                    _logger.LogIncoming("Received DisconnectResponse");
             }
             else
             {
-                Console.WriteLine("⚠ Disconnect timeout");
+                _logger.LogWarning("Disconnect timeout");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"⚠ Disconnect error: {ex.Message}");
+            _logger.LogWarning($"Disconnect error: {ex.Message}");
         }
 
         connection.Close();
-        Console.WriteLine("✓ Connection closed\n");
+        _logger.LogSuccess("Connection closed");
+        _logger.LogEmpty();
     }
 
-    private static async Task SendHelloWorld(ESPHomeConnection connection)
+    private async Task SendHelloWorld(ESPHomeConnection connection)
     {
         // Send HelloRequest
         var helloRequest = new HelloRequest
@@ -144,7 +149,7 @@ public class ESP
         };
 
         await connection.SendMessage(1, helloRequest);
-        Console.WriteLine("→ Sent HelloRequest");
+        _logger.LogOutgoing("Sent HelloRequest");
 
         // Read HelloResponse
         var (msgType, msgData) = await connection.ReadMessage();
@@ -152,19 +157,19 @@ public class ESP
         if (msgType == 2) // HelloResponse
         {
             var helloResponse = HelloResponse.Parser.ParseFrom(msgData);
-            Console.WriteLine($"← Received HelloResponse");
-            Console.WriteLine($"  Server: {helloResponse.ServerInfo}");
-            Console.WriteLine($"  API: {helloResponse.ApiVersionMajor}.{helloResponse.ApiVersionMinor}");
-            Console.WriteLine($"  Name: {helloResponse.Name}");
+            _logger.LogIncoming($"Received HelloResponse");
+            _logger.Log($"  Server: {helloResponse.ServerInfo}");
+            _logger.Log($"  API: {helloResponse.ApiVersionMajor}.{helloResponse.ApiVersionMinor}");
+            _logger.Log($"  Name: {helloResponse.Name}");
         }
     }
 
-    private static async Task Authenticate(ESPHomeConnection connection)
+    private async Task Authenticate(ESPHomeConnection connection)
     {
         // Send AuthenticationRequest (empty password)
         var authRequest = new AuthenticationRequest();
         await connection.SendMessage(3, authRequest);
-        Console.WriteLine("→ Sent AuthenticationRequest");
+        _logger.LogOutgoing("Sent AuthenticationRequest");
 
         // Read the response - according to ESPHome protocol, the server ALWAYS sends
         // AuthenticationResponse, even if password authentication is not required
@@ -177,17 +182,17 @@ public class ESP
             {
                 throw new InvalidOperationException("Authentication failed: Invalid password");
             }
-            Console.WriteLine("← Received AuthenticationResponse (authenticated)");
+            _logger.LogIncoming("Received AuthenticationResponse (authenticated)");
         }
         else
         {
             // Received a different message type - this shouldn't happen
-            Console.WriteLine($"⚠ Warning: Expected AuthenticationResponse (4) but got message type {msgType}");
+            _logger.LogWarning($"Expected AuthenticationResponse (4) but got message type {msgType}");
             throw new InvalidOperationException($"Unexpected message type after authentication: {msgType}");
         }
     }
 
-    public static async Task SetSwitchState(ESPHomeConnection connection, uint key, bool state, string? name = null)
+    public async Task SetSwitchState(ESPHomeConnection connection, uint key, bool state, string? name = null)
     {
         var switchCommand = new SwitchCommandRequest
         {
@@ -198,10 +203,10 @@ public class ESP
         await connection.SendMessage(33, switchCommand);
         var stateName = state ? "ON" : "OFF";
         var entityName = name != null ? $"'{name}' " : "";
-        Console.WriteLine($"→ Sent SwitchCommand: {entityName}→ {stateName}");
+        _logger.LogOutgoing($"Sent SwitchCommand: {entityName}→ {stateName}");
     }
 
-    private static async Task ListenForStateUpdates(ESPHomeConnection connection, Dictionary<uint, string> switches, int milliseconds)
+    private async Task ListenForStateUpdates(ESPHomeConnection connection, Dictionary<uint, string> switches, int milliseconds)
     {
         using var cts = new CancellationTokenSource();
         cts.CancelAfter(milliseconds);
@@ -225,13 +230,13 @@ public class ESP
                     if (switches.TryGetValue(switchState.Key, out var name))
                     {
                         var state = switchState.State ? "ON" : "OFF";
-                        Console.WriteLine($"← SwitchState: '{name}' is {state}");
+                        _logger.LogIncoming($"SwitchState: '{name}' is {state}");
                     }
                 }
                 else
                 {
                     // Log other message types for debugging
-                    Console.WriteLine($"← Received message type: {msgType}");
+                    _logger.LogIncoming($"Received message type: {msgType}");
                 }
             }
         }
@@ -241,16 +246,17 @@ public class ESP
         }
         catch (EndOfStreamException)
         {
-            Console.WriteLine("✗ Connection closed by server");
+            _logger.LogError("Connection closed by server");
         }
     }
 
-    private static async Task<Dictionary<uint, string>> ListAndSubscribeToEntities(ESPHomeConnection connection)
+    private async Task<Dictionary<uint, string>> ListAndSubscribeToEntities(ESPHomeConnection connection)
     {
         // Send ListEntitiesRequest
         var listEntitiesRequest = new ListEntitiesRequest();
         await connection.SendMessage(11, listEntitiesRequest);
-        Console.WriteLine("\n→ Sent ListEntitiesRequest");
+        _logger.LogEmpty();
+        _logger.LogOutgoing("Sent ListEntitiesRequest");
 
         // Read entity list
         var switchEntities = new Dictionary<uint, string>();
@@ -262,41 +268,42 @@ public class ESP
 
                 if (msgType == 19) // ListEntitiesDoneResponse
                 {
-                    Console.WriteLine($"← Received ListEntitiesDoneResponse ({switchEntities.Count} switches found)");
+                    _logger.LogIncoming($"Received ListEntitiesDoneResponse ({switchEntities.Count} switches found)");
                     break;
                 }
                 else if (msgType == 17) // ListEntitiesSwitchResponse
                 {
                     var switchEntity = ListEntitiesSwitchResponse.Parser.ParseFrom(msgData);
                     switchEntities[switchEntity.Key] = switchEntity.Name;
-                    Console.WriteLine($"← Found switch: '{switchEntity.Name}' (key: {switchEntity.Key})");
+                    _logger.LogIncoming($"Found switch: '{switchEntity.Name}' (key: {switchEntity.Key})");
                 }
                 else
                 {
                     // Log ignored entity types for debugging
-                    Console.WriteLine($"← Ignoring entity type {msgType} ({msgData.Length} bytes)");
+                    _logger.LogIncoming($"Ignoring entity type {msgType} ({msgData.Length} bytes)");
                 }
             }
             catch (EndOfStreamException ex)
             {
-                Console.WriteLine($"✗ Connection closed during entity listing: {ex.Message}");
+                _logger.LogError($"Connection closed during entity listing: {ex.Message}");
                 break;
             }
         }
 
         if (switchEntities.Count == 0)
         {
-            Console.WriteLine("⚠ No switch entities found");
+            _logger.LogWarning("No switch entities found");
             return switchEntities;
         }
 
         // Subscribe to state updates
         var subscribeStatesRequest = new SubscribeStatesRequest();
         await connection.SendMessage(20, subscribeStatesRequest);
-        Console.WriteLine("\n→ Sent SubscribeStatesRequest");
+        _logger.LogEmpty();
+        _logger.LogOutgoing("Sent SubscribeStatesRequest");
 
         // Read initial states briefly to show current state
-        Console.WriteLine("Waiting for initial state updates...");
+        _logger.Log("Waiting for initial state updates...");
         await ListenForStateUpdates(connection, switchEntities, 1000);
 
         return switchEntities;
