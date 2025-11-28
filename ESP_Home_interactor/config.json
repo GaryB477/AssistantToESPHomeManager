@@ -1,0 +1,17 @@
+{
+  "ESPs": [
+    {
+      "Host": "192.168.0.26",
+      "Port": 6053,
+      "Switches": [
+        {
+          "Key": 1,
+          "Name": "Living Room Fan",
+          "ObjectId": "switch.living_room_fan",
+          "DeviceClass": "fan",
+          "Icon": "mdi:fan"
+        }
+      ]
+    }
+  ]
+}
