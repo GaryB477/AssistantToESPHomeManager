@@ -7,11 +7,11 @@ namespace ESP_Home_Interactor;
 /// High-level ESPHome API client
 /// Handles device connection, entity discovery, and device control
 /// </summary>
-public class ESP_Base
+public class ESPBase
 {
     private readonly Logger _logger = new Logger();
     
-    public ESP_Base(string host = "192.168.0.26", int port = 6053)
+    public ESPBase(string host = "192.168.0.26", int port = 6053)
     {
         if (string.IsNullOrEmpty(host)) throw new ArgumentNullException(nameof(host));
         Host = host;
