@@ -1,5 +1,13 @@
 namespace ESP_Home_Interactor;
 
+public struct ESPConfig
+{
+    public required string Host { get; set; }
+    public required int Port { get; set; }
+    public EntitySwitch[]? Switches { get; set; }
+    // will implement other entities later
+}
+
 public struct EntityBinarySensor
 {
     public required uint Key { get; set; }

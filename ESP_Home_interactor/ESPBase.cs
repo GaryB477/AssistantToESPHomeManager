@@ -11,11 +11,10 @@ public class ESPBase
 {
     private readonly Logger _logger = new Logger();
     
-    public ESPBase(string host = "192.168.0.26", int port = 6053)
+    public ESPBase(ESPConfig config)
     {
-        if (string.IsNullOrEmpty(host)) throw new ArgumentNullException(nameof(host));
-        Host = host;
-        Port = port;
+        Host = config.Host;
+        Port = config.Port;
     }
 
     public int Port { get; set; }

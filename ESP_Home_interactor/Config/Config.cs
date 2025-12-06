@@ -5,15 +5,7 @@ namespace ESP_Home_Interactor.Config;
 
 public class Config
 {
-    public ESPConfig[]? ESPs { get; set; }
-    public class ESPConfig
-    {
-        public required string Host { get; set; }
-        public required int Port { get; set; }
-        
-        public EntitySwitch[]? Switches { get; set; }
-        // will implement other entities later
-    }
+    public required ESPConfig[] ESPNode { get; init; }
 
     public static async Task<Config> Read(string path)
     {
@@ -22,11 +14,6 @@ public class Config
             stream,
             new JsonSerializerOptions { ReadCommentHandling = JsonCommentHandling.Skip });
 
-        if (configuration is null)
-        {
-            throw new ArgumentException($"File at {path} is not a valid configuration file.");
-        }
-
-        return configuration;
+        return configuration ?? throw new ArgumentException($"File at {path} is not a valid configuration file.");
     }
 }

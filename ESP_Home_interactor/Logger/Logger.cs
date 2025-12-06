@@ -1,8 +1,8 @@
 namespace ESP_Home_Interactor.helper;
 
-public class Logger(bool DebugEnabled = false)
+public class Logger()
 {
-    public bool DebugEnabled { get; set; }
+    // public bool DebugEnabled { get; set; }
 
     private readonly string _prefixIncoming = "←";
     private readonly string _prefixOutgoing= "→";
