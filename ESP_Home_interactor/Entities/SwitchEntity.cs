@@ -75,7 +75,7 @@ public class SwitchEntity : EntityBase<bool>
             State = state
         };
 
-        await connection.SendMessage(33, switchCommand);
+        await connection.SendMessage((uint)MessageType.SwitchCommandRequest, switchCommand);
         var stateName = state ? "ON" : "OFF";
         Logger.LogOutgoing($"Sent SwitchCommand: '{Name}' → {stateName}");
     }

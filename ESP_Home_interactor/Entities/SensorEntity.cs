@@ -6,20 +6,19 @@ namespace ESP_Home_Interactor.Entities;
 /// Represents an analog sensor entity in ESPHome (e.g., temperature, light, humidity)
 /// Supports reading numeric values with optional units
 /// </summary>
-public class SensorEntity : EntityBase<float>
+public class SensorEntity(
+    uint key,
+    string name,
+    string objectId,
+    string unitOfMeasurement = "",
+    int accuracyDecimals = 1)
+    : EntityBase<float>(key, name, objectId)
 {
     private float? _currentValue;
     
-    public string UnitOfMeasurement { get; private set; }
-    public int AccuracyDecimals { get; private set; }
-    
-    public SensorEntity(uint key, string name, string objectId, string unitOfMeasurement = "", int accuracyDecimals = 1) 
-        : base(key, name, objectId)
-    {
-        UnitOfMeasurement = unitOfMeasurement;
-        AccuracyDecimals = accuracyDecimals;
-    }
-    
+    public string UnitOfMeasurement { get; private set; } = unitOfMeasurement;
+    public int AccuracyDecimals { get; private set; } = accuracyDecimals;
+
     /// <summary>
     /// Get the current sensor value
     /// </summary>

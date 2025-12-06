@@ -6,22 +6,14 @@ namespace ESP_Home_Interactor.Entities;
 /// Abstract base class for all ESPHome entities
 /// Provides common functionality for entity identification and value retrieval
 /// </summary>
-public abstract class EntityBase<T>
+public abstract class EntityBase<T>(uint key, string name, string objectId)
 {
     protected readonly Logger Logger = new Logger();
     
-    public uint Key { get; protected set; }
-    public string Name { get; protected set; }
-    public string ObjectId { get; protected set; }
-    public bool HasState { get; protected set; }
-
-    protected EntityBase(uint key, string name, string objectId)
-    {
-        Key = key;
-        Name = name;
-        ObjectId = objectId;
-        HasState = false;
-    }
+    public uint Key { get; protected set; } = key;
+    public string Name { get; protected set; } = name;
+    public string ObjectId { get; protected set; } = objectId;
+    public bool HasState { get; protected set; } = false;
 
     /// <summary>
     /// Get the current value/state of this entity

@@ -1,5 +1,7 @@
 using System.Net.Sockets;
+using ESP_Home_Interactor.Entities;
 using ESP_Home_Interactor.helper;
+using Google.Protobuf.WellKnownTypes;
 
 namespace ESP_Home_Interactor;
 
@@ -7,18 +9,12 @@ namespace ESP_Home_Interactor;
 /// High-level ESPHome API client
 /// Handles device connection, entity discovery, and device control
 /// </summary>
-public class ESPBase
+public class EspBase(ESPConfig config)
 {
     private readonly Logger _logger = new Logger();
-    
-    public ESPBase(ESPConfig config)
-    {
-        Host = config.Host;
-        Port = config.Port;
-    }
 
-    public int Port { get; set; }
-    public string Host { get; set; }
+    public int Port { get; set; } = config.Port;
+    public string Host { get; set; } = config.Host;
     private ESPHomeConnection? _connection;
 
     public async Task Init()
@@ -27,33 +23,32 @@ public class ESPBase
         await socket.ConnectAsync(Host, Port);
         var stream = new NetworkStream(socket);
         _connection = new ESPHomeConnection(socket, stream);
+        await SendHelloWorld(_connection);
+        await Authenticate(_connection);
     }
 
     public async Task Run()
     {
         if (_connection == null) throw new InvalidOperationException("Connection not initialized");
-
-        await SendHelloWorld(_connection);
-        await Authenticate(_connection);
-        var switches = await ListAndSubscribeToEntities(_connection);
+        // var switches = await ListAndSubscribeToEntities(_connection);
 
         // Example: Toggle the first switch if any found
-        if (switches.Count > 0)
+        // if (switches.Count > 0)
         {
-            var firstSwitch = switches.First();
-            _logger.LogEmpty();
-            _logger.LogSeparator("Testing Switch Control");
+            // var firstSwitch = switches.First();
+            // _logger.LogEmpty();
+            // _logger.LogSeparator("Testing Switch Control");
 
             // Turn ON
-            await SetSwitchState(_connection, firstSwitch.Key, true, firstSwitch.Value);
-            await ListenForStateUpdates(_connection, switches, 3000);
+            // await SetSwitchState(_connection, firstSwitch.Key, true, firstSwitch.Value);
+            // await ListenForStateUpdates(_connection, switches, 3000);
 
             // Turn OFF
-            await SetSwitchState(_connection, firstSwitch.Key, false, firstSwitch.Value);
-            await ListenForStateUpdates(_connection, switches, 3000);
+            // await SetSwitchState(_connection, firstSwitch.Key, false, firstSwitch.Value);
+            // await ListenForStateUpdates(_connection, switches, 3000);
 
-            _logger.LogSeparator("Test Complete");
-            _logger.LogEmpty();
+            // _logger.LogSeparator("Test Complete");
+            // _logger.LogEmpty();
         }
 
         // Drain any remaining messages before disconnect
@@ -106,7 +101,7 @@ public class ESPBase
 
         // Send DisconnectRequest
         var disconnectRequest = new DisconnectRequest();
-        await connection.SendMessage(5, disconnectRequest);
+        await connection.SendMessage((uint)MessageType.DisconnectRequest, disconnectRequest);
         _logger.LogOutgoing("Sent DisconnectRequest");
 
         // Wait for DisconnectResponse
@@ -119,7 +114,7 @@ public class ESPBase
             if (completedTask == readTask)
             {
                 var (msgType, msgData) = await readTask;
-                if (msgType == 6) // DisconnectResponse
+                if (msgType == (uint)MessageType.DisconnectResponse)
                     _logger.LogIncoming("Received DisconnectResponse");
             }
             else
@@ -147,13 +142,13 @@ public class ESPBase
             ApiVersionMinor = 13
         };
 
-        await connection.SendMessage(1, helloRequest);
+        await connection.SendMessage((uint)MessageType.HelloRequest, helloRequest);
         _logger.LogOutgoing("Sent HelloRequest");
 
         // Read HelloResponse
         var (msgType, msgData) = await connection.ReadMessage();
 
-        if (msgType == 2) // HelloResponse
+        if (msgType == (uint)MessageType.HelloResponse)
         {
             var helloResponse = HelloResponse.Parser.ParseFrom(msgData);
             _logger.LogIncoming($"Received HelloResponse");
@@ -167,14 +162,14 @@ public class ESPBase
     {
         // Send AuthenticationRequest (empty password)
         var authRequest = new AuthenticationRequest();
-        await connection.SendMessage(3, authRequest);
+        await connection.SendMessage((uint)MessageType.AuthenticationRequest, authRequest);
         _logger.LogOutgoing("Sent AuthenticationRequest");
 
         // Read the response - according to ESPHome protocol, the server ALWAYS sends
         // AuthenticationResponse, even if password authentication is not required
         var (msgType, msgData) = await connection.ReadMessage();
 
-        if (msgType == 4) // AuthenticationResponse
+        if (msgType == (uint)MessageType.AuthenticationResponse)
         {
             var authResponse = AuthenticationResponse.Parser.ParseFrom(msgData);
             if (authResponse.InvalidPassword)
@@ -199,7 +194,7 @@ public class ESPBase
             State = state
         };
 
-        await connection.SendMessage(33, switchCommand);
+        await connection.SendMessage((uint)MessageType.SwitchCommandRequest, switchCommand);
         var stateName = state ? "ON" : "OFF";
         var entityName = name != null ? $"'{name}' " : "";
         _logger.LogOutgoing($"Sent SwitchCommand: {entityName}→ {stateName}");
@@ -223,7 +218,7 @@ public class ESPBase
 
                 var (msgType, msgData) = await connection.ReadMessage();
 
-                if (msgType == 26) // SwitchStateResponse
+                if (msgType == (uint)MessageType.SwitchStateResponse)
                 {
                     var switchState = SwitchStateResponse.Parser.ParseFrom(msgData);
                     if (switches.TryGetValue(switchState.Key, out var name))
@@ -249,37 +244,71 @@ public class ESPBase
         }
     }
 
-    private async Task<Dictionary<uint, string>> ListAndSubscribeToEntities(ESPHomeConnection connection)
+    private async Task ListAndSubscribeToEntities(ESPHomeConnection connection)
     {
+        // Subscribe to state updates
+        var subscribeStatesRequest = new SubscribeStatesRequest();
+        await connection.SendMessage((uint)MessageType.SubscribeStatesRequest, subscribeStatesRequest);
+        _logger.LogEmpty();
+        _logger.LogOutgoing("Sent SubscribeStatesRequest");
+
+        // Read initial states briefly to show current state
+        _logger.Log("Waiting for initial state updates...");
+        // await ListenForStateUpdates(connection, switchEntities, 1000);
+        // return switchEntities;
+    }
+
+    public async Task<List<object>> GetAllSensorEntities()
+    {
+        if (_connection == null) throw new InvalidOperationException("Connection not initialized");
         // Send ListEntitiesRequest
         var listEntitiesRequest = new ListEntitiesRequest();
-        await connection.SendMessage(11, listEntitiesRequest);
+        await _connection.SendMessage((uint)MessageType.ListEntitiesRequest, listEntitiesRequest);
         _logger.LogEmpty();
         _logger.LogOutgoing("Sent ListEntitiesRequest");
 
         // Read entity list
-        var switchEntities = new Dictionary<uint, string>();
+        var sensorEntities = new List<object>();
         while (true)
         {
             try
             {
-                var (msgType, msgData) = await connection.ReadMessage();
+                var (msgType, msgData) = await _connection.ReadMessage();
 
-                if (msgType == 19) // ListEntitiesDoneResponse
+                // Abort if end is reached
+                if (msgType == (uint)MessageType.ListEntitiesDoneResponse)
                 {
-                    _logger.LogIncoming($"Received ListEntitiesDoneResponse ({switchEntities.Count} switches found)");
+                    _logger.LogIncoming($"Received ListEntitiesDoneResponse ({sensorEntities.Count} sensors found)");
                     break;
                 }
-                else if (msgType == 17) // ListEntitiesSwitchResponse
+                
+                switch (msgType)
                 {
-                    var switchEntity = ListEntitiesSwitchResponse.Parser.ParseFrom(msgData);
-                    switchEntities[switchEntity.Key] = switchEntity.Name;
-                    _logger.LogIncoming($"Found switch: '{switchEntity.Name}' (key: {switchEntity.Key})");
-                }
-                else
-                {
-                    // Log ignored entity types for debugging
-                    _logger.LogIncoming($"Ignoring entity type {msgType} ({msgData.Length} bytes)");
+                    case (uint)MessageType.ListEntitiesSwitchResponse:
+                        var switchEntity = ListEntitiesSwitchResponse.Parser.ParseFrom(msgData);
+                        sensorEntities.Add(new SwitchEntity(switchEntity.Key, switchEntity.Name, switchEntity.ObjectId));
+                        _logger.LogIncoming($"Found sensor: '{switchEntity.Name}' (key: {switchEntity.Key})");
+                        break;
+                        
+                    case (uint)MessageType.ListEntitiesSensorResponse:
+                    {
+                        var sensorEntity = ListEntitiesSensorResponse.Parser.ParseFrom(msgData);
+                        sensorEntities.Add(new SensorEntity(sensorEntity.Key, sensorEntity.Name, sensorEntity.ObjectId, 
+                            sensorEntity.UnitOfMeasurement, sensorEntity.AccuracyDecimals));
+                        _logger.LogIncoming($"Found sensor: '{sensorEntity.Name}' (key: {sensorEntity.Key})");
+                        break;
+                    }
+                    case (uint)MessageType.ListEntitiesBinarySensorResponse:
+                    {
+                        var binarySensorEntity = ListEntitiesBinarySensorResponse.Parser.ParseFrom(msgData);
+                        sensorEntities.Add(new BinarySensorEntity(binarySensorEntity.Key, binarySensorEntity.Name, binarySensorEntity.ObjectId));
+                        _logger.LogIncoming($"Found binary sensor: '{binarySensorEntity.Name}' (key: {binarySensorEntity.Key})");
+                        break;
+                    }
+                    default:
+                        // Log ignored entity types for debugging
+                        _logger.LogIncoming($"Ignoring entity type {msgType} ({msgData.Length} bytes)");
+                        break;
                 }
             }
             catch (EndOfStreamException ex)
@@ -289,22 +318,22 @@ public class ESPBase
             }
         }
 
-        if (switchEntities.Count == 0)
+        if (sensorEntities.Count == 0)
         {
-            _logger.LogWarning("No switch entities found");
-            return switchEntities;
+            _logger.LogWarning("No sensor entities found");
         }
+        return sensorEntities;
 
         // Subscribe to state updates
         var subscribeStatesRequest = new SubscribeStatesRequest();
-        await connection.SendMessage(20, subscribeStatesRequest);
+        await _connection.SendMessage((uint)MessageType.SubscribeStatesRequest, subscribeStatesRequest);
         _logger.LogEmpty();
         _logger.LogOutgoing("Sent SubscribeStatesRequest");
 
         // Read initial states briefly to show current state
-        _logger.Log("Waiting for initial state updates...");
-        await ListenForStateUpdates(connection, switchEntities, 1000);
+        // _logger.Log("Waiting for initial sensor state updates...");
+        // await ListenForSensorStateUpdates(connection, sensorEntities, 1000);
 
-        return switchEntities;
+        return sensorEntities;
     }
 }

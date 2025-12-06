@@ -73,6 +73,7 @@ public class ESPHomeConnection : IDisposable
 
         // Read message type as VarInt
         var type = await ReadVarInt();
+        
 
         // Read message data
         var data = new byte[length];
@@ -101,13 +102,13 @@ public class ESPHomeConnection : IDisposable
     private async Task<uint> ReadVarInt()
     {
         uint result = 0;
-        int shift = 0;
+        var shift = 0;
 
         while (true)
         {
             var buffer = new byte[1];
             await _stream.ReadExactlyAsync(buffer);
-            byte b = buffer[0];
+            var b = buffer[0];
 
             result |= (uint)(b & 0x7F) << shift;
 
