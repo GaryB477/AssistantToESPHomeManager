@@ -1,0 +1,12 @@
+@namespace ESP_Home_Interactor.Components
+@using Microsoft.AspNetCore.Components.Web
+
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)" />
+    </Found>
+    <NotFound>
+        <PageTitle>Not found</PageTitle>
+        <p role="alert">Sorry, there's nothing at this address.</p>
+    </NotFound>
+</Router>
