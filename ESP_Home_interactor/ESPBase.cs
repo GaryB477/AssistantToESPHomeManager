@@ -15,10 +15,10 @@ public class EspBase(ESPConfig config)
 
     public int Port { get; set; } = config.Port;
     public string Host { get; set; } = config.Host;
-    private ESPHomeConnection? _connection;
+    public ESPHomeConnection? Connection;
     public List<SensorEntity> SensorEntities { get; private set; } = new List<SensorEntity>();
-    public List<BinarySensorEntity> BinarySensorEntities{ get; private set; } = new List<BinarySensorEntity>();
-    public List<SwitchEntity> SwitchEntities{ get; private set; } = new List<SwitchEntity>();
+    public List<BinarySensorEntity> BinarySensorEntities { get; private set; } = new List<BinarySensorEntity>();
+    public List<SwitchEntity> SwitchEntities { get; private set; } = new List<SwitchEntity>();
 
     public async Task Init()
     {
@@ -35,9 +35,9 @@ public class EspBase(ESPConfig config)
             var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             await socket.ConnectAsync(Host, Port, cts.Token);
             var stream = new NetworkStream(socket);
-            _connection = new ESPHomeConnection(socket, stream);
-            await SendHelloWorld(_connection);
-            await Authenticate(_connection);
+            Connection = new ESPHomeConnection(socket, stream);
+            await SendHelloWorld(Connection);
+            await Authenticate(Connection);
         }
         catch (OperationCanceledException)
         {
@@ -47,26 +47,26 @@ public class EspBase(ESPConfig config)
 
     public async Task Sync()
     {
-        if (_connection == null) throw new InvalidOperationException("Connection not initialized");
-        if (SensorEntities.Count +
-            BinarySensorEntities.Count +
-            SwitchEntities.Count == 0) throw new InvalidOperationException("No sensors found");
+        if (Connection == null) throw new InvalidOperationException("Connection not initialized");
+        if ((SensorEntities.Count +
+             BinarySensorEntities.Count +
+             SwitchEntities.Count) == 0) throw new InvalidOperationException("No sensors found");
 
         await UpdateAllSensorStates();
 
-        await DrainMessages(_connection, 500);
+        await DrainMessages(Connection, 500);
     }
 
     private async Task UpdateAllSensorStates(int timeoutMilliseconds = 2000)
     {
-        if (_connection == null) throw new InvalidOperationException("Connection not initialized");
+        if (Connection == null) throw new InvalidOperationException("Connection not initialized");
 
         _logger.LogEmpty();
         _logger.LogSeparator("Updating Sensor States");
 
         // Send SubscribeStatesRequest
         var subscribeRequest = new SubscribeStatesRequest();
-        await _connection.SendMessage((uint)MessageType.SubscribeStatesRequest, subscribeRequest);
+        await Connection.SendMessage((uint)MessageType.SubscribeStatesRequest, subscribeRequest);
         _logger.LogOutgoing("Sent SubscribeStatesRequest");
 
         using var cts = new CancellationTokenSource(timeoutMilliseconds);
@@ -77,13 +77,13 @@ public class EspBase(ESPConfig config)
             while (!cts.Token.IsCancellationRequested)
             {
                 // Check if data is available before trying to read
-                if (!_connection.DataAvailable)
+                if (!Connection.DataAvailable)
                 {
                     await Task.Delay(50, cts.Token);
                     continue;
                 }
 
-                var (msgType, msgData) = await _connection.ReadMessage();
+                var (msgType, msgData) = await Connection.ReadMessage();
 
                 switch (msgType)
                 {
@@ -96,6 +96,7 @@ public class EspBase(ESPConfig config)
                             entity.UpdateState(msgData);
                             updatedCount++;
                         }
+
                         break;
                     }
                     case (uint)MessageType.SensorStateResponse:
@@ -107,6 +108,7 @@ public class EspBase(ESPConfig config)
                             entity.UpdateState(msgData);
                             updatedCount++;
                         }
+
                         break;
                     }
                     case (uint)MessageType.BinarySensorStateResponse:
@@ -118,6 +120,7 @@ public class EspBase(ESPConfig config)
                             entity.UpdateState(msgData);
                             updatedCount++;
                         }
+
                         break;
                     }
                 }
@@ -179,15 +182,15 @@ public class EspBase(ESPConfig config)
 
         // Send DisconnectRequest
         var disconnectRequest = new DisconnectRequest();
-        if (_connection == null) throw new InvalidOperationException("Connection not initialized");
-        await _connection?.SendMessage((uint)MessageType.DisconnectRequest, disconnectRequest)!;
+        if (Connection == null) throw new InvalidOperationException("Connection not initialized");
+        await Connection?.SendMessage((uint)MessageType.DisconnectRequest, disconnectRequest)!;
         _logger.LogOutgoing("Sent DisconnectRequest");
 
         // Wait for DisconnectResponse
         try
         {
             var timeout = Task.Delay(5000);
-            var readTask = _connection.ReadMessage();
+            var readTask = Connection.ReadMessage();
             var completedTask = await Task.WhenAny(readTask, timeout);
 
             if (completedTask == readTask)
@@ -206,7 +209,7 @@ public class EspBase(ESPConfig config)
             _logger.LogWarning($"Disconnect error: {ex.Message}");
         }
 
-        _connection.Close();
+        Connection.Close();
         _logger.LogSuccess("Connection closed");
         _logger.LogEmpty();
     }
@@ -244,33 +247,61 @@ public class EspBase(ESPConfig config)
         await connection.SendMessage((uint)MessageType.AuthenticationRequest, authRequest);
         _logger.LogOutgoing("Sent AuthenticationRequest");
 
-        // Read the response - according to ESPHome protocol, the server ALWAYS sends
-        // AuthenticationResponse, even if password authentication is not required
-        var (msgType, msgData) = await connection.ReadMessage();
+        // IMPORTANT: According to ESPHome protocol, the device will ONLY send
+        // AuthenticationResponse if authentication FAILS. If authentication succeeds
+        // or is not required, the device will NOT send a response - it will just
+        // continue with normal operation (sending pings, etc.)
+        //
+        // Therefore, we check if there's an immediate response. If we get an
+        // AuthenticationResponse, it means auth failed. Otherwise, we assume success.
 
-        if (msgType == (uint)MessageType.AuthenticationResponse)
+        using var cts = new CancellationTokenSource(1000); // Wait up to 1 second
+
+        try
         {
-            var authResponse = AuthenticationResponse.Parser.ParseFrom(msgData);
-            if (authResponse.InvalidPassword)
+            // Check if there's data available with a short timeout
+            while (!cts.Token.IsCancellationRequested)
             {
-                throw new InvalidOperationException("Authentication failed: Invalid password");
+                if (connection.DataAvailable)
+                {
+                    var (msgType, msgData) = await connection.ReadMessage();
+
+                    if (msgType == (uint)MessageType.AuthenticationResponse)
+                    {
+                        var authResponse = AuthenticationResponse.Parser.ParseFrom(msgData);
+                        if (authResponse.InvalidPassword)
+                        {
+                            throw new InvalidOperationException("Authentication failed: Invalid password");
+                        }
+                        _logger.LogIncoming("Received AuthenticationResponse (authenticated)");
+                        return;
+                    }
+                    else
+                    {
+                        // Got some other message - auth must have succeeded, but we need to
+                        // handle this message. For now, just log it as unexpected
+                        _logger.LogWarning($"Got message type {msgType} after auth request - assuming auth succeeded");
+                        return;
+                    }
+                }
+
+                await Task.Delay(50, cts.Token);
             }
-            _logger.LogIncoming("Received AuthenticationResponse (authenticated)");
         }
-        else
+        catch (OperationCanceledException)
         {
-            // Received a different message type - this shouldn't happen
-            _logger.LogWarning($"Expected AuthenticationResponse (4) but got message type {msgType}");
-            throw new InvalidOperationException($"Unexpected message type after authentication: {msgType}");
+            // Timeout - no response means authentication succeeded
         }
+
+        _logger.LogIncoming("No AuthenticationResponse received - authentication succeeded");
     }
 
     public async Task FetchAllSensorEntities()
     {
-        if (_connection == null) throw new InvalidOperationException("Connection not initialized");
+        if (Connection == null) throw new InvalidOperationException("Connection not initialized");
         // Send ListEntitiesRequest
         var listEntitiesRequest = new ListEntitiesRequest();
-        await _connection.SendMessage((uint)MessageType.ListEntitiesRequest, listEntitiesRequest);
+        await Connection.SendMessage((uint)MessageType.ListEntitiesRequest, listEntitiesRequest);
         _logger.LogEmpty();
         _logger.LogOutgoing("Sent ListEntitiesRequest");
 
@@ -278,7 +309,7 @@ public class EspBase(ESPConfig config)
         {
             try
             {
-                var (msgType, msgData) = await _connection.ReadMessage();
+                var (msgType, msgData) = await Connection.ReadMessage();
 
                 // Abort if end is reached
                 if (msgType == (uint)MessageType.ListEntitiesDoneResponse)
@@ -287,18 +318,19 @@ public class EspBase(ESPConfig config)
                     _logger.LogIncoming($"Received ListEntitiesDoneResponse ({sensorSum} sensors found)");
                     break;
                 }
-                
+
                 switch (msgType)
                 {
                     case (uint)MessageType.ListEntitiesSwitchResponse:
                         var switchEntity = ListEntitiesSwitchResponse.Parser.ParseFrom(msgData);
-                        SwitchEntities.Add(new SwitchEntity(switchEntity.Key, switchEntity.Name, switchEntity.ObjectId));
+                        SwitchEntities.Add(new SwitchEntity(switchEntity.Key, switchEntity.Name,
+                            switchEntity.ObjectId));
                         _logger.LogIncoming($"Found sensor: '{switchEntity.Name}' (key: {switchEntity.Key})");
                         break;
                     case (uint)MessageType.ListEntitiesSensorResponse:
                     {
                         var sensorEntity = ListEntitiesSensorResponse.Parser.ParseFrom(msgData);
-                        SensorEntities.Add(new SensorEntity(sensorEntity.Key, sensorEntity.Name, sensorEntity.ObjectId, 
+                        SensorEntities.Add(new SensorEntity(sensorEntity.Key, sensorEntity.Name, sensorEntity.ObjectId,
                             sensorEntity.UnitOfMeasurement, sensorEntity.AccuracyDecimals));
                         _logger.LogIncoming($"Found sensor: '{sensorEntity.Name}' (key: {sensorEntity.Key})");
                         break;
@@ -306,8 +338,10 @@ public class EspBase(ESPConfig config)
                     case (uint)MessageType.ListEntitiesBinarySensorResponse:
                     {
                         var binarySensorEntity = ListEntitiesBinarySensorResponse.Parser.ParseFrom(msgData);
-                        BinarySensorEntities.Add(new BinarySensorEntity(binarySensorEntity.Key, binarySensorEntity.Name, binarySensorEntity.ObjectId));
-                        _logger.LogIncoming($"Found binary sensor: '{binarySensorEntity.Name}' (key: {binarySensorEntity.Key})");
+                        BinarySensorEntities.Add(new BinarySensorEntity(binarySensorEntity.Key, binarySensorEntity.Name,
+                            binarySensorEntity.ObjectId));
+                        _logger.LogIncoming(
+                            $"Found binary sensor: '{binarySensorEntity.Name}' (key: {binarySensorEntity.Key})");
                         break;
                     }
                     default:

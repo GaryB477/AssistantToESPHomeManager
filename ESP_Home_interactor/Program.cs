@@ -10,14 +10,23 @@ var ESPs = espConfigs.ESPNode.Select(esp => new EspBase(esp)).ToList();
 foreach (EspBase esp in ESPs)
 {
    Console.WriteLine(esp.Host);
-   await esp.InitConnection();
-   await esp.FetchAllSensorEntities();
+   await esp.Init();
    await esp.Sync();
 }
 
-EspBase? switchESP = ESPs.FirstOrDefault(esp => esp.Host == "192.168.0.26");
-var switchEntity = switchESP?.SwitchEntities.FirstOrDefault(s => s.Name == "test_switch");
-Console.WriteLine( $"Got value for sensor {switchEntity?.ObjectId}: {switchEntity.GetValue()}");
+EspBase switchESP = ESPs.First(esp => esp.Host == "192.168.0.26");
+var switchEntity = switchESP.SwitchEntities.FirstOrDefault(s => s.Name == "onboardLED", null);
+if (switchEntity == null) throw new Exception("Could not find switch");
+
+Console.WriteLine();
+
+await switchEntity.SetStateAsync(switchESP.Connection, true);
+await switchESP.Sync();
+await switchEntity.SetStateAsync(switchESP.Connection, false);
+await switchESP.Sync();
+
+Console.WriteLine();
+
 foreach (EspBase esp in ESPs)
 {
    await esp.Cleanup();
