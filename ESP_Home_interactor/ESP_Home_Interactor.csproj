@@ -17,6 +17,7 @@
 
     <ItemGroup>
         <Folder Include="docs\"/>
+        <Folder Include="Entities\" />
         <Folder Include="protobuf_out\"/>
     </ItemGroup>
 

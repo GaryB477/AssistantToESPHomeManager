@@ -16,45 +16,123 @@ public class EspBase(ESPConfig config)
     public int Port { get; set; } = config.Port;
     public string Host { get; set; } = config.Host;
     private ESPHomeConnection? _connection;
+    public List<SensorEntity> SensorEntities { get; private set; } = new List<SensorEntity>();
+    public List<BinarySensorEntity> BinarySensorEntities{ get; private set; } = new List<BinarySensorEntity>();
+    public List<SwitchEntity> SwitchEntities{ get; private set; } = new List<SwitchEntity>();
 
     public async Task Init()
     {
-        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        await socket.ConnectAsync(Host, Port);
-        var stream = new NetworkStream(socket);
-        _connection = new ESPHomeConnection(socket, stream);
-        await SendHelloWorld(_connection);
-        await Authenticate(_connection);
+        await InitConnection();
+        await FetchAllSensorEntities();
     }
 
-    public async Task Run()
+    public async Task InitConnection(int timeoutMilliseconds = 5000)
+    {
+        using var cts = new CancellationTokenSource(timeoutMilliseconds);
+
+        try
+        {
+            var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            await socket.ConnectAsync(Host, Port, cts.Token);
+            var stream = new NetworkStream(socket);
+            _connection = new ESPHomeConnection(socket, stream);
+            await SendHelloWorld(_connection);
+            await Authenticate(_connection);
+        }
+        catch (OperationCanceledException)
+        {
+            throw new TimeoutException($"Connection to {Host}:{Port} timed out after {timeoutMilliseconds}ms");
+        }
+    }
+
+    public async Task Sync()
     {
         if (_connection == null) throw new InvalidOperationException("Connection not initialized");
-        // var switches = await ListAndSubscribeToEntities(_connection);
+        if (SensorEntities.Count +
+            BinarySensorEntities.Count +
+            SwitchEntities.Count == 0) throw new InvalidOperationException("No sensors found");
 
-        // Example: Toggle the first switch if any found
-        // if (switches.Count > 0)
+        await UpdateAllSensorStates();
+
+        await DrainMessages(_connection, 500);
+    }
+
+    private async Task UpdateAllSensorStates(int timeoutMilliseconds = 2000)
+    {
+        if (_connection == null) throw new InvalidOperationException("Connection not initialized");
+
+        _logger.LogEmpty();
+        _logger.LogSeparator("Updating Sensor States");
+
+        // Send SubscribeStatesRequest
+        var subscribeRequest = new SubscribeStatesRequest();
+        await _connection.SendMessage((uint)MessageType.SubscribeStatesRequest, subscribeRequest);
+        _logger.LogOutgoing("Sent SubscribeStatesRequest");
+
+        using var cts = new CancellationTokenSource(timeoutMilliseconds);
+        int updatedCount = 0;
+
+        try
         {
-            // var firstSwitch = switches.First();
-            // _logger.LogEmpty();
-            // _logger.LogSeparator("Testing Switch Control");
+            while (!cts.Token.IsCancellationRequested)
+            {
+                // Check if data is available before trying to read
+                if (!_connection.DataAvailable)
+                {
+                    await Task.Delay(50, cts.Token);
+                    continue;
+                }
 
-            // Turn ON
-            // await SetSwitchState(_connection, firstSwitch.Key, true, firstSwitch.Value);
-            // await ListenForStateUpdates(_connection, switches, 3000);
+                var (msgType, msgData) = await _connection.ReadMessage();
 
-            // Turn OFF
-            // await SetSwitchState(_connection, firstSwitch.Key, false, firstSwitch.Value);
-            // await ListenForStateUpdates(_connection, switches, 3000);
-
-            // _logger.LogSeparator("Test Complete");
-            // _logger.LogEmpty();
+                switch (msgType)
+                {
+                    case (uint)MessageType.SwitchStateResponse:
+                    {
+                        var state = SwitchStateResponse.Parser.ParseFrom(msgData);
+                        var entity = SwitchEntities.FirstOrDefault(e => e.Key == state.Key);
+                        if (entity != null)
+                        {
+                            entity.UpdateState(msgData);
+                            updatedCount++;
+                        }
+                        break;
+                    }
+                    case (uint)MessageType.SensorStateResponse:
+                    {
+                        var state = SensorStateResponse.Parser.ParseFrom(msgData);
+                        var entity = SensorEntities.FirstOrDefault(e => e.Key == state.Key);
+                        if (entity != null)
+                        {
+                            entity.UpdateState(msgData);
+                            updatedCount++;
+                        }
+                        break;
+                    }
+                    case (uint)MessageType.BinarySensorStateResponse:
+                    {
+                        var state = BinarySensorStateResponse.Parser.ParseFrom(msgData);
+                        var entity = BinarySensorEntities.FirstOrDefault(e => e.Key == state.Key);
+                        if (entity != null)
+                        {
+                            entity.UpdateState(msgData);
+                            updatedCount++;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Timeout reached - this is normal
+        }
+        catch (EndOfStreamException)
+        {
+            _logger.LogWarning("Connection closed during state update");
         }
 
-        // Drain any remaining messages before disconnect
-        await DrainMessages(_connection, 500);
-
-        await Cleanup(_connection);
+        _logger.LogSuccess($"Updated {updatedCount} sensor state(s)");
     }
 
     private async Task DrainMessages(ESPHomeConnection connection, int milliseconds)
@@ -95,20 +173,21 @@ public class EspBase(ESPConfig config)
         }
     }
 
-    private async Task Cleanup(ESPHomeConnection connection)
+    public async Task Cleanup()
     {
         _logger.LogSeparator("Disconnecting");
 
         // Send DisconnectRequest
         var disconnectRequest = new DisconnectRequest();
-        await connection.SendMessage((uint)MessageType.DisconnectRequest, disconnectRequest);
+        if (_connection == null) throw new InvalidOperationException("Connection not initialized");
+        await _connection?.SendMessage((uint)MessageType.DisconnectRequest, disconnectRequest)!;
         _logger.LogOutgoing("Sent DisconnectRequest");
 
         // Wait for DisconnectResponse
         try
         {
             var timeout = Task.Delay(5000);
-            var readTask = connection.ReadMessage();
+            var readTask = _connection.ReadMessage();
             var completedTask = await Task.WhenAny(readTask, timeout);
 
             if (completedTask == readTask)
@@ -127,7 +206,7 @@ public class EspBase(ESPConfig config)
             _logger.LogWarning($"Disconnect error: {ex.Message}");
         }
 
-        connection.Close();
+        _connection.Close();
         _logger.LogSuccess("Connection closed");
         _logger.LogEmpty();
     }
@@ -186,79 +265,7 @@ public class EspBase(ESPConfig config)
         }
     }
 
-    public async Task SetSwitchState(ESPHomeConnection connection, uint key, bool state, string? name = null)
-    {
-        var switchCommand = new SwitchCommandRequest
-        {
-            Key = key,
-            State = state
-        };
-
-        await connection.SendMessage((uint)MessageType.SwitchCommandRequest, switchCommand);
-        var stateName = state ? "ON" : "OFF";
-        var entityName = name != null ? $"'{name}' " : "";
-        _logger.LogOutgoing($"Sent SwitchCommand: {entityName}→ {stateName}");
-    }
-
-    private async Task ListenForStateUpdates(ESPHomeConnection connection, Dictionary<uint, string> switches, int milliseconds)
-    {
-        using var cts = new CancellationTokenSource();
-        cts.CancelAfter(milliseconds);
-
-        try
-        {
-            while (!cts.Token.IsCancellationRequested)
-            {
-                // Check if data is available before trying to read
-                if (!connection.DataAvailable)
-                {
-                    await Task.Delay(50, cts.Token);
-                    continue;
-                }
-
-                var (msgType, msgData) = await connection.ReadMessage();
-
-                if (msgType == (uint)MessageType.SwitchStateResponse)
-                {
-                    var switchState = SwitchStateResponse.Parser.ParseFrom(msgData);
-                    if (switches.TryGetValue(switchState.Key, out var name))
-                    {
-                        var state = switchState.State ? "ON" : "OFF";
-                        _logger.LogIncoming($"SwitchState: '{name}' is {state}");
-                    }
-                }
-                else
-                {
-                    // Log other message types for debugging
-                    _logger.LogIncoming($"Received message type: {msgType}");
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Timeout reached - this is normal
-        }
-        catch (EndOfStreamException)
-        {
-            _logger.LogError("Connection closed by server");
-        }
-    }
-
-    private async Task ListAndSubscribeToEntities(ESPHomeConnection connection)
-    {
-        // Subscribe to state updates
-        var subscribeStatesRequest = new SubscribeStatesRequest();
-        await connection.SendMessage((uint)MessageType.SubscribeStatesRequest, subscribeStatesRequest);
-        _logger.LogEmpty();
-        _logger.LogOutgoing("Sent SubscribeStatesRequest");
-
-        // Read initial states briefly to show current state
-        _logger.Log("Waiting for initial state updates...");
-        // await ListenForStateUpdates(connection, switchEntities, 1000);
-        // return switchEntities;
-    }
-
-    public async Task<List<object>> GetAllSensorEntities()
+    public async Task FetchAllSensorEntities()
     {
         if (_connection == null) throw new InvalidOperationException("Connection not initialized");
         // Send ListEntitiesRequest
@@ -267,8 +274,6 @@ public class EspBase(ESPConfig config)
         _logger.LogEmpty();
         _logger.LogOutgoing("Sent ListEntitiesRequest");
 
-        // Read entity list
-        var sensorEntities = new List<object>();
         while (true)
         {
             try
@@ -278,7 +283,8 @@ public class EspBase(ESPConfig config)
                 // Abort if end is reached
                 if (msgType == (uint)MessageType.ListEntitiesDoneResponse)
                 {
-                    _logger.LogIncoming($"Received ListEntitiesDoneResponse ({sensorEntities.Count} sensors found)");
+                    var sensorSum = SensorEntities.Count + BinarySensorEntities.Count + SwitchEntities.Count;
+                    _logger.LogIncoming($"Received ListEntitiesDoneResponse ({sensorSum} sensors found)");
                     break;
                 }
                 
@@ -286,14 +292,13 @@ public class EspBase(ESPConfig config)
                 {
                     case (uint)MessageType.ListEntitiesSwitchResponse:
                         var switchEntity = ListEntitiesSwitchResponse.Parser.ParseFrom(msgData);
-                        sensorEntities.Add(new SwitchEntity(switchEntity.Key, switchEntity.Name, switchEntity.ObjectId));
+                        SwitchEntities.Add(new SwitchEntity(switchEntity.Key, switchEntity.Name, switchEntity.ObjectId));
                         _logger.LogIncoming($"Found sensor: '{switchEntity.Name}' (key: {switchEntity.Key})");
                         break;
-                        
                     case (uint)MessageType.ListEntitiesSensorResponse:
                     {
                         var sensorEntity = ListEntitiesSensorResponse.Parser.ParseFrom(msgData);
-                        sensorEntities.Add(new SensorEntity(sensorEntity.Key, sensorEntity.Name, sensorEntity.ObjectId, 
+                        SensorEntities.Add(new SensorEntity(sensorEntity.Key, sensorEntity.Name, sensorEntity.ObjectId, 
                             sensorEntity.UnitOfMeasurement, sensorEntity.AccuracyDecimals));
                         _logger.LogIncoming($"Found sensor: '{sensorEntity.Name}' (key: {sensorEntity.Key})");
                         break;
@@ -301,7 +306,7 @@ public class EspBase(ESPConfig config)
                     case (uint)MessageType.ListEntitiesBinarySensorResponse:
                     {
                         var binarySensorEntity = ListEntitiesBinarySensorResponse.Parser.ParseFrom(msgData);
-                        sensorEntities.Add(new BinarySensorEntity(binarySensorEntity.Key, binarySensorEntity.Name, binarySensorEntity.ObjectId));
+                        BinarySensorEntities.Add(new BinarySensorEntity(binarySensorEntity.Key, binarySensorEntity.Name, binarySensorEntity.ObjectId));
                         _logger.LogIncoming($"Found binary sensor: '{binarySensorEntity.Name}' (key: {binarySensorEntity.Key})");
                         break;
                     }
@@ -317,23 +322,5 @@ public class EspBase(ESPConfig config)
                 break;
             }
         }
-
-        if (sensorEntities.Count == 0)
-        {
-            _logger.LogWarning("No sensor entities found");
-        }
-        return sensorEntities;
-
-        // Subscribe to state updates
-        var subscribeStatesRequest = new SubscribeStatesRequest();
-        await _connection.SendMessage((uint)MessageType.SubscribeStatesRequest, subscribeStatesRequest);
-        _logger.LogEmpty();
-        _logger.LogOutgoing("Sent SubscribeStatesRequest");
-
-        // Read initial states briefly to show current state
-        // _logger.Log("Waiting for initial sensor state updates...");
-        // await ListenForSensorStateUpdates(connection, sensorEntities, 1000);
-
-        return sensorEntities;
     }
 }
