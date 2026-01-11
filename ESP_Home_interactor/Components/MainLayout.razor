@@ -1,0 +1,14 @@
+@namespace ESP_Home_Interactor.Components
+@inherits LayoutComponentBase
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="page">
+    @Body
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Console.WriteLine("MainLayout initialized");
+    }
+}

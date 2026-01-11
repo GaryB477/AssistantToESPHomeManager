@@ -8,6 +8,17 @@
     <h1>ESPHome Dashboard</h1>
     <p class="update-time">Last updated: @DateTime.Now.ToString("HH:mm:ss")</p>
 
+    <div style="background: #dc2626; padding: 1rem; margin-bottom: 1rem; border-radius: 8px;">
+        <button type="button" @onclick="TestClick" style="background: white; color: black; padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+            TEST BUTTON - Click Counter: @_testClickCount
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_lastAction))
+    {
+        <p class="last-action">Last action: @_lastAction</p>
+    }
+
     @if (!EspService.Devices.Any())
     {
         <div class="loading">
@@ -53,43 +64,104 @@
 </div>
 
 @code {
+    private string _lastAction = "";
     private bool _isConnected = false;
+    private int _testClickCount = 0;
+
+    private void TestClick()
+    {
+        _testClickCount++;
+        Console.WriteLine($"!!!! TEST BUTTON CLICKED - Count: {_testClickCount} !!!!");
+        _lastAction = $"Test button clicked {_testClickCount} times";
+    }
+
+    protected override void OnInitialized()
+    {
+        Console.WriteLine("=== InteractiveDashboard OnInitialized called ===");
+        Console.WriteLine($"Devices available: {EspService.Devices.Count}");
+    }
 
     protected override void OnAfterRender(bool firstRender)
     {
         if (firstRender)
         {
+            Console.WriteLine("=== InteractiveDashboard OnAfterRender (first render) ===");
+            Console.WriteLine($"Render mode info - IsInteractive: This component should be interactive");
             _isConnected = true;
             EspService.OnDevicesUpdated += OnDevicesUpdated;
+            Console.WriteLine("Event handler attached");
+            Console.WriteLine($"Component is ready for interaction");
+        }
+        else
+        {
+            Console.WriteLine($"OnAfterRender called (not first render)");
         }
     }
 
     private void OnDevicesUpdated()
     {
+        Console.WriteLine("OnDevicesUpdated event triggered");
         InvokeAsync(StateHasChanged);
     }
 
     private async Task ToggleSwitch(EspBase device, SwitchEntity switchEntity)
     {
-        if (device?.Connection == null) return;
-
         try
         {
+            Console.WriteLine("========================================");
+            Console.WriteLine($"[BUTTON CLICKED] ToggleSwitch method called!");
+            Console.WriteLine($"  Thread ID: {System.Threading.Thread.CurrentThread.ManagedThreadId}");
+            Console.WriteLine($"  Device: {device?.Host ?? "NULL"}");
+            Console.WriteLine($"  Switch: {switchEntity?.Name ?? "NULL"}");
+            Console.WriteLine($"  Current State: {switchEntity?.GetValue()}");
+            Console.WriteLine($"  Connection Status: {(device?.Connection == null ? "NULL" : "CONNECTED")}");
+
+            _lastAction = $"Button clicked at {DateTime.Now:HH:mm:ss}";
+            await InvokeAsync(StateHasChanged);
+
+            if (device.Connection == null)
+            {
+                Console.WriteLine($"[ERROR] Cannot toggle switch - device {device.Host} is not connected");
+                _lastAction = "ERROR: Device not connected";
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
             var newState = !switchEntity.GetValue();
+            Console.WriteLine($"[ACTION] Toggling switch {switchEntity.Name} on {device.Host} to {newState}");
+            _lastAction = $"Toggling {switchEntity.Name} to {newState}...";
+            await InvokeAsync(StateHasChanged);
+
             await switchEntity.SetStateAsync(device.Connection, newState);
+            Console.WriteLine($"[SUCCESS] Command sent successfully");
+
             await device.Sync();
+            Console.WriteLine($"[SUCCESS] State synced");
+
+            _lastAction = $"Successfully toggled {switchEntity.Name} to {newState}";
+            await InvokeAsync(StateHasChanged);
+            Console.WriteLine($"[COMPLETE] Successfully toggled switch {switchEntity.Name}");
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Silently handle errors - could add logging here if needed
+            Console.WriteLine($"[EXCEPTION at top level] Failed to toggle switch: {ex.GetType().Name}");
+            Console.WriteLine($"[EXCEPTION] Message: {ex.Message}");
+            Console.WriteLine($"[EXCEPTION] Stack: {ex.StackTrace}");
+            _lastAction = $"ERROR: {ex.Message}";
+            await InvokeAsync(StateHasChanged);
+        }
+        finally
+        {
+            Console.WriteLine("========================================");
         }
     }
 
     public void Dispose()
     {
+        Console.WriteLine("=== InteractiveDashboard Dispose called ===");
         if (_isConnected)
         {
             EspService.OnDevicesUpdated -= OnDevicesUpdated;
+            Console.WriteLine("Event handler detached");
         }
     }
 }
