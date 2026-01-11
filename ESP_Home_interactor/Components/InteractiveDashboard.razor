@@ -7,13 +7,7 @@
 <div class="dashboard">
     <h1>ESPHome Dashboard</h1>
     <p class="update-time">Last updated: @DateTime.Now.ToString("HH:mm:ss")</p>
-
-    <div style="background: #dc2626; padding: 1rem; margin-bottom: 1rem; border-radius: 8px;">
-        <button type="button" @onclick="TestClick" style="background: white; color: black; padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
-            TEST BUTTON - Click Counter: @_testClickCount
-        </button>
-    </div>
-
+    
     @if (!string.IsNullOrEmpty(_lastAction))
     {
         <p class="last-action">Last action: @_lastAction</p>
@@ -66,14 +60,6 @@
 @code {
     private string _lastAction = "";
     private bool _isConnected = false;
-    private int _testClickCount = 0;
-
-    private void TestClick()
-    {
-        _testClickCount++;
-        Console.WriteLine($"!!!! TEST BUTTON CLICKED - Count: {_testClickCount} !!!!");
-        _lastAction = $"Test button clicked {_testClickCount} times";
-    }
 
     protected override void OnInitialized()
     {
