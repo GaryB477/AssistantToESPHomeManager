@@ -47,6 +47,7 @@ public class CyclePhase
     public required string Name { get; set; }
     public required TimeOnly Start { get; set; }
     public required List<ActorState> Actors { get; set; }
+    public List<AcFanState> AcFans { get; set; } = new();
 }
 
 /// <summary>
@@ -61,4 +62,17 @@ public class ActorState
 
     /// <summary>Brightness 0.0 - 1.0, lights only</summary>
     public float? Brightness { get; set; }
+}
+
+/// <summary>
+/// Target level of one AC Infinity fan port during a phase.
+/// Matched via controller name + port number.
+/// </summary>
+public class AcFanState
+{
+    public required string Controller { get; set; }
+    public required int Port { get; set; }
+
+    /// <summary>Fan level 0 - 10, 0 turns the port off</summary>
+    public required int Level { get; set; }
 }

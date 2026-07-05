@@ -14,6 +14,10 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<EspDeviceService>(
 builder.Services.AddSingleton<CycleSchedulerService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<CycleSchedulerService>());
 
+// Add AC Infinity Service
+builder.Services.AddSingleton<AcInfinityService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<AcInfinityService>());
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline

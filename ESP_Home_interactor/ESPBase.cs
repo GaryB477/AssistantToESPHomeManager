@@ -33,6 +33,9 @@ public class EspBase(ESPConfig config)
     /// <summary>Raised whenever an entity state update was received</summary>
     public event Action? StateChanged;
 
+    /// <summary>Raised for every Bluetooth proxy message (advertisements, GATT responses, ...)</summary>
+    public event Action<MessageType, byte[]>? BluetoothMessageReceived;
+
     public async Task Init()
     {
         await InitConnection();
@@ -194,9 +197,20 @@ public class EspBase(ESPConfig config)
             }
 
             default:
+                if (IsBluetoothMessage(msgType))
+                {
+                    BluetoothMessageReceived?.Invoke(msgType, msgData);
+                    break;
+                }
                 _logger.Log($"[{Host}] Ignoring message type {msgType} ({msgData.Length} bytes)");
                 break;
         }
+    }
+
+    private static bool IsBluetoothMessage(MessageType msgType)
+    {
+        var id = (uint)msgType;
+        return (id >= 66 && id <= 88) || msgType == MessageType.BluetoothLERawAdvertisementsResponse;
     }
 
     private void UpdateEntityState<T>(EntityBase<T>? entity, byte[] msgData)

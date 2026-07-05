@@ -1,11 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ESP_Home_Interactor.AcInfinity;
 
 namespace ESP_Home_Interactor.Config;
 
 public class Config
 {
     public required ESPConfig[] ESPNode { get; init; }
+    public AcInfinityConfig? AcInfinity { get; init; }
 
     public static async Task<Config> Read(string path)
     {

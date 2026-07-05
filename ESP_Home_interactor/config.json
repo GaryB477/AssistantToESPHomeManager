@@ -8,6 +8,23 @@
       "Host": "192.168.0.15",
       "Port": 6053,
       "Password": "U7u4M1JcxItZ/XmJ+/zrG6Y/Gev5aJD36LA6joXsbhM="
+    },
+    {
+      "Host": "192.168.0.18",
+      "Port": 6053
     }
-  ]
+  ],
+  "AcInfinity": {
+    "ProxyHost": "192.168.0.18",
+    "Controllers": [
+      {
+        "Name": "Controller 69",
+        "Mac": "18:8B:0E:F2:4C:32",
+        "Ports": [
+          { "Port": 2, "Name": "Ventilation" },
+          { "Port": 3, "Name": "Fan" }
+        ]
+      }
+    ]
+  }
 }

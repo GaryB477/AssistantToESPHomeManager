@@ -16,15 +16,26 @@ public class CycleSchedulerService : BackgroundService
 {
     private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// Fan levels get re-sent unconditionally at this interval: the Controller 69
+    /// firmware offers no reliable way to read per-port state, so external changes
+    /// (app, display) can only be corrected by blind re-enforcement.
+    /// </summary>
+    private static readonly TimeSpan FanReEnforceInterval = TimeSpan.FromMinutes(5);
+
+    private DateTime _lastFanEnforcement = DateTime.MinValue;
+
     private readonly ILogger<CycleSchedulerService> _logger;
     private readonly EspDeviceService _espService;
+    private readonly AcInfinityService _acService;
     private readonly string _configPath;
 
     public CycleSchedulerService(ILogger<CycleSchedulerService> logger, EspDeviceService espService,
-        IConfiguration configuration)
+        AcInfinityService acService, IConfiguration configuration)
     {
         _logger = logger;
         _espService = espService;
+        _acService = acService;
         _configPath = configuration["CycleConfigPath"] ??
                       "/Users/marc/git/private/HomePeter/ESP_Home_interactor/cycles.json";
     }
@@ -188,5 +199,45 @@ public class CycleSchedulerService : BackgroundService
                     actor.ObjectId, actor.Host, ex.Message);
             }
         }
+
+        var reEnforceFans = DateTime.Now - _lastFanEnforcement >= FanReEnforceInterval;
+
+        foreach (var fan in phase.AcFans)
+        {
+            var controller = _acService.Controllers.FirstOrDefault(c => c.Name == fan.Controller);
+            if (controller == null)
+            {
+                _logger.LogWarning("Fan actor: controller {Controller} not configured", fan.Controller);
+                continue;
+            }
+
+            if (controller.Type == null)
+            {
+                _logger.LogWarning("Fan actor: controller {Controller} not seen yet - retrying next tick",
+                    fan.Controller);
+                continue;
+            }
+
+            try
+            {
+                // PortLevels only holds levels we commanded ourselves; an unknown
+                // port is treated as mismatch so the level gets enforced
+                if (!reEnforceFans &&
+                    controller.PortLevels.TryGetValue(fan.Port, out var current) && current == fan.Level)
+                    continue;
+
+                _logger.LogInformation("Phase '{Phase}': setting {Controller} port {Port} to level {Level}",
+                    phase.Name, fan.Controller, fan.Port, fan.Level);
+                await controller.SetLevelAsync(fan.Port, fan.Level);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Failed to set {Controller} port {Port}: {Message}",
+                    fan.Controller, fan.Port, ex.Message);
+            }
+        }
+
+        if (reEnforceFans && phase.AcFans.Count > 0)
+            _lastFanEnforcement = DateTime.Now;
     }
 }

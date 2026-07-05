@@ -91,9 +91,9 @@ public enum MessageType : uint
     MediaPlayerStateResponse = 64,
     MediaPlayerCommandRequest = 65,
 
-    // Bluetooth Proxy (66-88, 93, 126-127)
-    BluetoothProxySubscribeRequest = 66,
-    BluetoothProxySubscribeResponse = 67,
+    // Bluetooth Proxy (66-88, 93)
+    SubscribeBluetoothLEAdvertisementsRequest = 66,
+    BluetoothLEAdvertisementResponse = 67,
     BluetoothDeviceRequest = 68,
     BluetoothDeviceConnectionResponse = 69,
     BluetoothGATTGetServicesRequest = 70,
@@ -102,26 +102,26 @@ public enum MessageType : uint
     BluetoothGATTReadRequest = 73,
     BluetoothGATTReadResponse = 74,
     BluetoothGATTWriteRequest = 75,
-    BluetoothGATTWriteResponse = 76,
-    BluetoothGATTNotifyRequest = 77,
-    BluetoothGATTNotifyResponse = 78,
+    BluetoothGATTReadDescriptorRequest = 76,
+    BluetoothGATTWriteDescriptorRequest = 77,
+    BluetoothGATTNotifyRequest = 78,
     BluetoothGATTNotifyDataResponse = 79,
-    BluetoothLEAdvertisementResponse = 80,
-    BluetoothDevicePairingResponse = 81,
-    BluetoothDeviceUnpairingResponse = 82,
-    BluetoothDeviceClearCacheResponse = 83,
-    BluetoothGATTGetServiceRequest = 84,
-    BluetoothGATTGetServiceResponse = 85,
-    BluetoothDeviceConnectionStateResponse = 86,
-    BluetoothGATTErrorResponse = 87,
-    BluetoothGATTWriteDescriptorRequest = 88,
+    SubscribeBluetoothConnectionsFreeRequest = 80,
+    BluetoothConnectionsFreeResponse = 81,
+    BluetoothGATTErrorResponse = 82,
+    BluetoothGATTWriteResponse = 83,
+    BluetoothGATTNotifyResponse = 84,
+    BluetoothDevicePairingResponse = 85,
+    BluetoothDeviceUnpairingResponse = 86,
+    UnsubscribeBluetoothLEAdvertisementsRequest = 87,
+    BluetoothDeviceClearCacheResponse = 88,
+    BluetoothLERawAdvertisementsResponse = 93,
 
     // Voice Assistant (89-92, 106, 115, 119-123)
-    VoiceAssistantRequest = 89,
-    VoiceAssistantResponse = 90,
-    VoiceAssistantEventResponse = 91,
-    VoiceAssistantAudioSettings = 92,
-    BluetoothDeviceRequestResponse = 93,
+    SubscribeVoiceAssistantRequest = 89,
+    VoiceAssistantRequest = 90,
+    VoiceAssistantResponse = 91,
+    VoiceAssistantEventResponse = 92,
 
     // Alarm Control Panel (94-96)
     ListEntitiesAlarmControlPanelResponse = 94,
@@ -143,7 +143,7 @@ public enum MessageType : uint
     TimeStateResponse = 104,
     TimeCommandRequest = 105,
 
-    VoiceAssistantEventData = 106,
+    VoiceAssistantAudio = 106,
 
     // Event (107-108)
     ListEntitiesEventResponse = 107,
@@ -159,36 +159,31 @@ public enum MessageType : uint
     DateTimeStateResponse = 113,
     DateTimeCommandRequest = 114,
 
-    VoiceAssistantAudioSettingsRequest = 115,
+    VoiceAssistantTimerEventResponse = 115,
 
     // Update (116-118)
     ListEntitiesUpdateResponse = 116,
     UpdateStateResponse = 117,
     UpdateCommandRequest = 118,
 
-    // Voice Assistant Timer (119-123)
-    VoiceAssistantTimerEventResponse = 119,
-    VoiceAssistantAnnounceRequest = 120,
-    VoiceAssistantAnnounceResponse = 121,
-    VoiceAssistantWakeWordRequest = 122,
-    VoiceAssistantWakeWordResponse = 123,
+    // Voice Assistant continued (119-123)
+    VoiceAssistantAnnounceRequest = 119,
+    VoiceAssistantAnnounceFinished = 120,
+    VoiceAssistantConfigurationRequest = 121,
+    VoiceAssistantConfigurationResponse = 122,
+    VoiceAssistantSetConfiguration = 123,
 
     // Noise Encryption (124-125)
-    ConnectRequest = 124,
-    ConnectResponse = 125,
-
-    // Additional Bluetooth (126-127)
-    BluetoothConnectionsFreeRequest = 126,
-    BluetoothConnectionsFreeResponse = 127,
+    NoiseEncryptionSetKeyRequest = 124,
+    NoiseEncryptionSetKeyResponse = 125,
 
     // Z-Wave Proxy (128-129)
-    UnsubscribeBluetoothLEAdvertisementsRequest = 128,
-    BluetoothLERawAdvertisementsResponse = 129,
+    ZWaveProxyFrame = 128,
+    ZWaveProxyRequest = 129,
 
-    // Services (130)
+    // Services (36-37)
     GetTimeRequest = 36,
-    GetTimeResponse = 37,
-    BluetoothGATTNotifyDataRequest = 130
+    GetTimeResponse = 37
 }
 
 public struct ESPConfig

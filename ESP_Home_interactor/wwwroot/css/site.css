@@ -533,6 +533,46 @@ body {
     margin-left: 1px;
 }
 
+/* ---------- AC Infinity fans ---------- */
+
+.entity-card.fan.on {
+    border-color: rgba(74, 222, 128, 0.45);
+    box-shadow: inset 0 0 30px rgba(74, 222, 128, 0.05);
+}
+
+.entity-card.fan.on .entity-icon {
+    filter: drop-shadow(0 0 8px rgba(74, 222, 128, 0.8));
+}
+
+.entity-card.fan .brightness-value {
+    color: var(--green);
+}
+
+.entity-card.fan:not(.on) .brightness-value {
+    color: var(--muted);
+}
+
+.entity-card.fan .toggle-pill.on {
+    background: linear-gradient(180deg, #16a34a, #15803d);
+    color: white;
+    box-shadow: 0 0 16px rgba(74, 222, 128, 0.35);
+}
+
+.entity-card.fan input[type="range"] {
+    accent-color: var(--green);
+}
+
+.entity-card.fan input[type="range"]::-webkit-slider-thumb {
+    background: var(--green);
+    border-color: #052e16;
+    box-shadow: 0 0 10px rgba(74, 222, 128, 0.5);
+}
+
+.entity-card.fan input[type="range"]::-moz-range-thumb {
+    background: var(--green);
+    border-color: #052e16;
+}
+
 /* ---------- Range inputs ---------- */
 
 input[type="range"] {

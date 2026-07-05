@@ -1,9 +1,11 @@
 @namespace ESP_Home_Interactor.Components
+@using ESP_Home_Interactor.AcInfinity
 @using ESP_Home_Interactor.Config
 @using ESP_Home_Interactor.Services
 @using ESP_Home_Interactor.Entities
 @inject EspDeviceService EspService
 @inject CycleSchedulerService CycleService
+@inject AcInfinityService AcService
 @implements IDisposable
 
 <div class="dashboard">
@@ -104,6 +106,18 @@
                                     }
                                 </div>
                             }
+                            @foreach (var fan in phase.AcFans)
+                            {
+                                <div class="actor-editor">
+                                    <span class="actor-name">🌀 Port @fan.Port <small>@fan.Controller</small></span>
+                                    <label class="field slider">
+                                        <span>Level <strong>@fan.Level/10</strong></span>
+                                        <input type="range" min="0" max="10"
+                                               value="@fan.Level"
+                                               @onchange="@(e => fan.Level = int.Parse((string)e.Value!))" />
+                                    </label>
+                                </div>
+                            }
                         </div>
                     }
                     <button class="save-button" type="button" @onclick="SaveCycles">Save cycles</button>
@@ -111,6 +125,71 @@
             }
         }
     </section>
+
+    @if (AcService.Controllers.Any())
+    {
+        <div class="device-grid">
+            @foreach (var controller in AcService.Controllers)
+            {
+                var online = controller.LastSeen.HasValue &&
+                             (DateTime.Now - controller.LastSeen.Value).TotalSeconds < 60;
+                <section class="device-card ac-card @(online ? "" : "offline")">
+                    <div class="device-head">
+                        <span class="conn-dot @(online ? "online" : "")"></span>
+                        <h2>🌀 @controller.Name</h2>
+                        <span class="conn-label">@(online ? "advertising" : "not seen")</span>
+                    </div>
+
+                    <div class="entity-section">
+                        <h3>Climate</h3>
+                        <div class="sensor-grid">
+                            <div class="sensor-tile">
+                                <span class="sensor-value">@(controller.Temperature?.ToString("F1") ?? "–") °C</span>
+                                <span class="sensor-name">Temperature</span>
+                            </div>
+                            <div class="sensor-tile">
+                                <span class="sensor-value">@(controller.Humidity?.ToString("F1") ?? "–") %</span>
+                                <span class="sensor-name">Humidity</span>
+                            </div>
+                            <div class="sensor-tile">
+                                <span class="sensor-value">@(controller.Vpd?.ToString("F2") ?? "–") kPa</span>
+                                <span class="sensor-name">VPD</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="entity-section">
+                        <h3>Fans</h3>
+                        @foreach (var port in controller.Ports)
+                        {
+                            var currentController = controller;
+                            var currentPort = port;
+                            var level = controller.PortLevels.GetValueOrDefault(port.Port, 0);
+                            <div class="entity-card fan @(level > 0 ? "on" : "")">
+                                <div class="entity-head">
+                                    <span class="entity-icon">🌀</span>
+                                    <span class="entity-name">@port.Name</span>
+                                    <button class="toggle-pill @(level > 0 ? "on" : "")"
+                                            type="button"
+                                            disabled="@_acCommandRunning"
+                                            @onclick="@(async () => await SetFanLevel(currentController, currentPort.Port, level > 0 ? 0 : 10))">
+                                        @(level > 0 ? $"LVL {level}" : "OFF")
+                                    </button>
+                                </div>
+                                <div class="brightness-row">
+                                    <span class="brightness-value">@level<small>/10</small></span>
+                                    <input type="range" min="0" max="10"
+                                           value="@level"
+                                           disabled="@_acCommandRunning"
+                                           @onchange="@(async e => await SetFanLevel(currentController, currentPort.Port, int.Parse((string)e.Value!)))" />
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
+        </div>
+    }
 
     @if (!EspService.Devices.Any())
     {
@@ -221,6 +300,7 @@
     private string _lastAction = "";
     private DateTime _lastActionTime;
     private bool _showEditor;
+    private bool _acCommandRunning;
     private System.Threading.Timer? _clock;
 
     protected override void OnAfterRender(bool firstRender)
@@ -229,8 +309,33 @@
         {
             EspService.OnDevicesUpdated += OnUpdated;
             CycleService.OnCycleChanged += OnUpdated;
+            AcService.OnControllersUpdated += OnUpdated;
             _clock = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, 1000, 1000);
         }
+    }
+
+    private async Task SetFanLevel(AcInfinityController controller, int port, int level)
+    {
+        _acCommandRunning = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            // Manual interaction: suspend the cycle so the scheduler doesn't revert it
+            CycleService.ActivateOverride();
+            await controller.SetLevelAsync(port, level);
+            ShowAction($"{controller.Name}: port {port} set to level {level}");
+        }
+        catch (Exception ex)
+        {
+            ShowAction($"ERROR: {ex.Message}");
+        }
+        finally
+        {
+            _acCommandRunning = false;
+        }
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private void OnUpdated()
@@ -403,6 +508,7 @@
     {
         EspService.OnDevicesUpdated -= OnUpdated;
         CycleService.OnCycleChanged -= OnUpdated;
+        AcService.OnControllersUpdated -= OnUpdated;
         _clock?.Dispose();
     }
 }
