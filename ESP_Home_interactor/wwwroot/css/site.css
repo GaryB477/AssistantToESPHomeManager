@@ -88,6 +88,28 @@ body {
     color: var(--muted);
 }
 
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+}
+
+.icon-button {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0.3rem;
+    display: inline-flex;
+    font-size: 1.15rem;
+    transition: color 0.2s;
+}
+
+.icon-button:hover,
+.icon-button.active {
+    color: var(--text);
+}
+
 /* ---------- Toast ---------- */
 
 .toast {
@@ -397,6 +419,251 @@ body {
 
 .save-button:active {
     filter: brightness(0.95);
+}
+
+/* ---------- Settings ---------- */
+
+.settings-card {
+    margin-bottom: 1.5rem;
+}
+
+.settings-hint {
+    font-size: 0.8rem;
+}
+
+.settings-note {
+    border-radius: 8px;
+    padding: 0.6rem 1rem;
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+    border: 1px solid;
+}
+
+.settings-note.error {
+    color: var(--red);
+    border-color: var(--red);
+}
+
+.settings-note.ok {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.5rem;
+}
+
+.settings-group h3 {
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.75rem;
+}
+
+.settings-sub {
+    background: var(--card-inner);
+    border-radius: 10px;
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.settings-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.6rem;
+    margin-bottom: 0.6rem;
+}
+
+.settings-row.indent,
+.add-button.indent {
+    margin-left: 1rem;
+}
+
+.sfield {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.sfield.tiny {
+    flex: 0 0 64px;
+}
+
+.sfield span {
+    color: var(--muted);
+    font-size: 0.75rem;
+}
+
+.sfield input {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    font-family: inherit;
+    font-size: 0.9rem;
+    width: 100%;
+}
+
+.sfield input:focus {
+    outline: none;
+    border-color: var(--muted);
+}
+
+.remove-button {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.2s, border-color 0.2s;
+}
+
+.remove-button:hover {
+    color: var(--red);
+    border-color: var(--red);
+}
+
+.add-button {
+    background: none;
+    border: 1px dashed var(--border);
+    color: var(--muted);
+    border-radius: 8px;
+    padding: 0.4rem 0.9rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+}
+
+.add-button:hover {
+    color: var(--text);
+    border-color: var(--muted);
+}
+
+.settings-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+}
+
+.save-button.secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+.save-button.secondary:hover {
+    border-color: var(--muted);
+}
+
+/* ---------- History charts ---------- */
+
+.chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.chart {
+    background: var(--card-inner);
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+}
+
+.chart-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.5rem;
+}
+
+.chart-title {
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.chart-minmax {
+    color: var(--muted);
+    font-size: 0.75rem;
+}
+
+.chart-plot {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.chart-plot .grid {
+    stroke: var(--border);
+    stroke-width: 1;
+}
+
+.chart-plot .series {
+    stroke: var(--text);
+    stroke-width: 2;
+    fill: none;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+.chart-plot .series-dot {
+    fill: var(--text);
+}
+
+/* Hover layer: crosshair + point + value label, pure CSS (no server roundtrips) */
+.chart-plot .hpt line,
+.chart-plot .hpt circle,
+.chart-plot .hpt text {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.1s;
+}
+
+.chart-plot .hpt line {
+    stroke: var(--accent);
+    stroke-width: 1;
+}
+
+.chart-plot .hpt circle {
+    fill: var(--accent);
+}
+
+.chart-plot .hpt text {
+    fill: var(--text);
+    font-size: 11px;
+}
+
+.chart-plot .hpt:hover line,
+.chart-plot .hpt:hover circle,
+.chart-plot .hpt:hover text {
+    opacity: 1;
+}
+
+.chart-empty {
+    color: var(--muted);
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 1.75rem 0;
+    background: var(--card-inner);
+    border-radius: 10px;
+}
+
+.chart-x {
+    display: flex;
+    justify-content: space-between;
+    color: var(--muted);
+    font-size: 0.7rem;
+    margin-top: 0.3rem;
+    font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Device cards ---------- */

@@ -1,0 +1,14 @@
+bin/
+obj/
+data/
+docs/
+.venv/
+.idea/
+.claude/
+.DS_Store
+python_reference/
+aioesphomeapi/
+integration_test/
+*.md
+Dockerfile
+docker-compose.yml

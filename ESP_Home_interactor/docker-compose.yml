@@ -1,0 +1,17 @@
+services:
+  homepeter:
+    build: .
+    container_name: homepeter
+    # Makes the UI's "Save & restart" button an apply button:
+    # the app stops itself after saving and comes back with the new config
+    restart: unless-stopped
+    ports:
+      - "5010:5010"
+    environment:
+      # Plain "Urls" (not ASPNETCORE_URLS): it must override the localhost
+      # value in appsettings.json, which host-level env vars do not
+      - Urls=http://0.0.0.0:5010
+      - EspConfigPath=/data/config.json
+      - CycleConfigPath=/data/cycles.json
+    volumes:
+      - ./data:/data

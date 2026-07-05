@@ -1,0 +1,227 @@
+@namespace ESP_Home_Interactor.Components
+@using ESP_Home_Interactor.AcInfinity
+@using System.Text.RegularExpressions
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+@inject Microsoft.Extensions.Hosting.IHostApplicationLifetime AppLifetime
+
+<section class="cycle-card settings-card">
+    <div class="cycle-head">
+        <h2>Settings</h2>
+        <span class="muted settings-hint">changes apply after restart</span>
+    </div>
+
+    @if (_error != null)
+    {
+        <div class="settings-note error">@_error</div>
+    }
+    @if (_saved)
+    {
+        <div class="settings-note ok">Saved — restart the app to apply</div>
+    }
+
+    <div class="settings-grid">
+        <div class="settings-group">
+            <h3>ESP Nodes</h3>
+            @foreach (var node in _nodes)
+            {
+                var currentNode = node;
+                <div class="settings-row">
+                    <label class="sfield"><span>Host</span><input type="text" @bind="currentNode.Host"/></label>
+                    <label class="sfield tiny"><span>Port</span><input type="text" @bind="currentNode.Port"/></label>
+                    <label class="sfield"><span>Password</span><input type="password" @bind="currentNode.Password"/></label>
+                    <button class="remove-button" type="button" title="Remove node"
+                            @onclick="() => _nodes.Remove(currentNode)">✕</button>
+                </div>
+            }
+            <button class="add-button" type="button" @onclick="() => _nodes.Add(new NodeEdit())">+ Add node</button>
+        </div>
+
+        <div class="settings-group">
+            <h3>AC Infinity</h3>
+            <div class="settings-row">
+                <label class="sfield"><span>Proxy host</span><input type="text" @bind="_proxyHost"/></label>
+            </div>
+            @foreach (var controller in _controllers)
+            {
+                var currentController = controller;
+                <div class="settings-sub">
+                    <div class="settings-row">
+                        <label class="sfield"><span>Name</span><input type="text" @bind="currentController.Name"/></label>
+                        <label class="sfield"><span>MAC</span><input type="text" @bind="currentController.Mac" placeholder="18:8B:0E:F2:4C:32"/></label>
+                        <button class="remove-button" type="button" title="Remove controller"
+                                @onclick="() => _controllers.Remove(currentController)">✕</button>
+                    </div>
+                    @foreach (var port in currentController.Ports)
+                    {
+                        var currentPort = port;
+                        <div class="settings-row indent">
+                            <label class="sfield tiny"><span>Port</span><input type="text" @bind="currentPort.Port"/></label>
+                            <label class="sfield"><span>Name</span><input type="text" @bind="currentPort.Name"/></label>
+                            <button class="remove-button" type="button" title="Remove port"
+                                    @onclick="() => currentController.Ports.Remove(currentPort)">✕</button>
+                        </div>
+                    }
+                    <button class="add-button indent" type="button"
+                            @onclick="() => currentController.Ports.Add(new PortEdit())">+ Add port</button>
+                </div>
+            }
+            <button class="add-button" type="button" @onclick="() => _controllers.Add(new ControllerEdit())">+ Add controller</button>
+        </div>
+    </div>
+
+    <div class="settings-actions">
+        <button class="save-button" type="button" @onclick="() => Save(false)">Save</button>
+        <button class="save-button secondary" type="button" title="Saves and stops the app; the service supervisor restarts it with the new config"
+                @onclick="() => Save(true)">Save &amp; restart</button>
+    </div>
+</section>
+
+@code {
+    private static readonly Regex MacPattern = new("^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$");
+
+    private List<NodeEdit> _nodes = new();
+    private List<ControllerEdit> _controllers = new();
+    private string _proxyHost = "";
+    private string? _error;
+    private bool _saved;
+
+    private string ConfigPath => Configuration["EspConfigPath"] ??
+                                 "/Users/marc/git/private/HomePeter/ESP_Home_interactor/config.json";
+
+    private sealed class NodeEdit
+    {
+        public string Host { get; set; } = "";
+        public string Port { get; set; } = "6053";
+        public string Password { get; set; } = "";
+    }
+
+    private sealed class ControllerEdit
+    {
+        public string Name { get; set; } = "";
+        public string Mac { get; set; } = "";
+        /// <summary>Not edited in the UI, carried through so saving keeps it</summary>
+        public int? Type { get; set; }
+        public List<PortEdit> Ports { get; set; } = new();
+    }
+
+    private sealed class PortEdit
+    {
+        public string Port { get; set; } = "1";
+        public string Name { get; set; } = "";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var config = await ESP_Home_Interactor.Config.Config.Read(ConfigPath);
+
+            _nodes = config.ESPNode.Select(n => new NodeEdit
+            {
+                Host = n.Host,
+                Port = n.Port.ToString(),
+                Password = n.Password ?? ""
+            }).ToList();
+
+            _proxyHost = config.AcInfinity?.ProxyHost ?? "";
+            _controllers = config.AcInfinity?.Controllers.Select(c => new ControllerEdit
+            {
+                Name = c.Name,
+                Mac = c.Mac,
+                Type = c.Type,
+                Ports = c.Ports.Select(p => new PortEdit { Port = p.Port.ToString(), Name = p.Name }).ToList()
+            }).ToList() ?? new List<ControllerEdit>();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load config: {ex.Message}";
+        }
+    }
+
+    private string? Validate()
+    {
+        if (_nodes.Count == 0) return "At least one ESP node is required";
+
+        foreach (var node in _nodes)
+        {
+            if (string.IsNullOrWhiteSpace(node.Host)) return "ESP node host must not be empty";
+            if (!int.TryParse(node.Port, out var port) || port is < 1 or > 65535)
+                return $"Invalid port for node '{node.Host}'";
+        }
+
+        if (_controllers.Count == 0) return null;
+
+        if (string.IsNullOrWhiteSpace(_proxyHost))
+            return "Proxy host is required when controllers are configured";
+        if (_nodes.All(n => n.Host.Trim() != _proxyHost.Trim()))
+            return "Proxy host must also be listed as ESP node";
+
+        foreach (var controller in _controllers)
+        {
+            if (string.IsNullOrWhiteSpace(controller.Name)) return "Controller name must not be empty";
+            if (!MacPattern.IsMatch(controller.Mac.Trim()))
+                return $"Invalid MAC address for controller '{controller.Name}' (expected XX:XX:XX:XX:XX:XX)";
+
+            foreach (var port in controller.Ports)
+            {
+                if (!int.TryParse(port.Port, out var portNr) || portNr is < 1 or > 8)
+                    return $"Port number must be 1-8 on controller '{controller.Name}'";
+                if (string.IsNullOrWhiteSpace(port.Name))
+                    return $"Port name must not be empty on controller '{controller.Name}'";
+            }
+        }
+
+        return null;
+    }
+
+    private async Task Save(bool restart)
+    {
+        _saved = false;
+        _error = Validate();
+        if (_error != null) return;
+
+        var config = new ESP_Home_Interactor.Config.Config
+        {
+            ESPNode = _nodes.Select(n => new ESPConfig
+            {
+                Host = n.Host.Trim(),
+                Port = int.Parse(n.Port),
+                Password = string.IsNullOrWhiteSpace(n.Password) ? null : n.Password
+            }).ToArray(),
+            AcInfinity = _controllers.Count == 0
+                ? null
+                : new AcInfinityConfig
+                {
+                    ProxyHost = _proxyHost.Trim(),
+                    Controllers = _controllers.Select(c => new AcInfinityControllerConfig
+                    {
+                        Name = c.Name.Trim(),
+                        Mac = c.Mac.Trim().ToUpperInvariant(),
+                        Type = c.Type,
+                        Ports = c.Ports.Select(p => new AcInfinityPortConfig
+                        {
+                            Port = int.Parse(p.Port),
+                            Name = p.Name.Trim()
+                        }).ToArray()
+                    }).ToArray()
+                }
+        };
+
+        try
+        {
+            await config.Save(ConfigPath);
+            _saved = true;
+
+            if (restart)
+            {
+                // Under systemd/Docker with a restart policy this comes right
+                // back up with the new config; a manual `dotnet run` just exits
+                AppLifetime.StopApplication();
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Save failed: {ex.Message}";
+        }
+    }
+}

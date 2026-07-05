@@ -18,6 +18,10 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<CycleSchedulerServ
 builder.Services.AddSingleton<AcInfinityService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AcInfinityService>());
 
+// Add Sensor History
+builder.Services.AddSingleton<SensorHistoryService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SensorHistoryService>());
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline

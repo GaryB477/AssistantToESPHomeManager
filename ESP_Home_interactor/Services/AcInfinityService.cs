@@ -19,6 +19,9 @@ public class AcInfinityService : BackgroundService
 
     public IReadOnlyList<AcInfinityController> Controllers => _controllers.AsReadOnly();
 
+    /// <summary>Host of the BLE proxy; the GUI hides this device's own card</summary>
+    public string? ProxyHost { get; private set; }
+
     public event Action? OnControllersUpdated;
 
     public AcInfinityService(ILogger<AcInfinityService> logger, EspDeviceService espService,
@@ -43,6 +46,7 @@ public class AcInfinityService : BackgroundService
                 return;
             }
 
+            ProxyHost = config.ProxyHost;
             var proxy = await WaitForProxy(config.ProxyHost, stoppingToken);
             _logger.LogInformation("AC Infinity service using proxy {Host}", config.ProxyHost);
 

@@ -1,0 +1,52 @@
+{
+  "Phases": [
+    {
+      "Name": "High",
+      "Start": "04:00:00",
+      "Actors": [
+        {
+          "Host": "192.168.0.15",
+          "ObjectId": "main_light",
+          "On": true,
+          "Brightness": 0.5
+        }
+      ],
+      "AcFans": [
+        {
+          "Controller": "Controller 69",
+          "Port": 2,
+          "Level": 5
+        },
+        {
+          "Controller": "Controller 69",
+          "Port": 3,
+          "Level": 5
+        }
+      ]
+    },
+    {
+      "Name": "Low",
+      "Start": "16:00:00",
+      "Actors": [
+        {
+          "Host": "192.168.0.15",
+          "ObjectId": "main_light",
+          "On": false,
+          "Brightness": null
+        }
+      ],
+      "AcFans": [
+        {
+          "Controller": "Controller 69",
+          "Port": 2,
+          "Level": 0
+        },
+        {
+          "Controller": "Controller 69",
+          "Port": 3,
+          "Level": 0
+        }
+      ]
+    }
+  ]
+}

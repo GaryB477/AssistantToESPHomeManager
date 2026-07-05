@@ -3,9 +3,11 @@
 @using ESP_Home_Interactor.Config
 @using ESP_Home_Interactor.Services
 @using ESP_Home_Interactor.Entities
+@using System.Globalization
 @inject EspDeviceService EspService
 @inject CycleSchedulerService CycleService
 @inject AcInfinityService AcService
+@inject SensorHistoryService HistoryService
 @implements IDisposable
 
 <div class="dashboard">
@@ -14,12 +16,21 @@
             <h1><span class="app-logo">@IconLeaf</span> HomePeter</h1>
             <p class="app-subtitle">Homegrow Dashboard</p>
         </div>
-        <div class="app-clock">@DateTime.Now.ToString("HH:mm")</div>
+        <div class="header-right">
+            <button class="icon-button @(_showSettings ? "active" : "")" type="button" title="Settings"
+                    @onclick="() => _showSettings = !_showSettings">@IconGear</button>
+            <div class="app-clock">@DateTime.Now.ToString("HH:mm")</div>
+        </div>
     </header>
 
     @if (!string.IsNullOrEmpty(_lastAction) && (DateTime.Now - _lastActionTime).TotalSeconds < 6)
     {
         <div class="toast @(_lastAction.StartsWith("ERROR") ? "error" : "")">@_lastAction</div>
+    }
+
+    @if (_showSettings)
+    {
+        <ConfigEditor/>
     }
 
     <section class="cycle-card">
@@ -126,6 +137,61 @@
         }
     </section>
 
+    @foreach (var controller in AcService.Controllers)
+    {
+        var charts = BuildCharts(controller);
+
+        <section class="cycle-card">
+            <div class="cycle-head">
+                <h2>History · @controller.Name · 24h</h2>
+            </div>
+            @if (charts == null)
+            {
+                <p class="chart-empty">Collecting data — charts appear after a few minutes</p>
+            }
+            else
+            {
+            <div class="chart-grid">
+                @foreach (var chart in charts)
+                {
+                    <div class="chart">
+                        <div class="chart-head">
+                            <span class="chart-title">@chart.Title</span>
+                            <span class="chart-minmax">min @Fmt(chart.Min)@chart.Unit · max @Fmt(chart.Max)@chart.Unit</span>
+                        </div>
+                        <svg class="chart-plot" viewBox="0 0 600 110">
+                            @for (var i = 1; i <= 3; i++)
+                            {
+                                var gy = Fmt(8 + (86 - 8) * i / 4.0);
+                                <line class="grid" x1="6" x2="594" y1="@gy" y2="@gy"/>
+                            }
+                            <line class="grid" x1="6" x2="594" y1="86" y2="86"/>
+                            <path class="series" d="@chart.LinePath"/>
+                            @foreach (var p in chart.Points.Where(p => p.Isolated))
+                            {
+                                <circle class="series-dot" cx="@Fmt(p.X)" cy="@Fmt(p.Y)" r="2"/>
+                            }
+                            @foreach (var p in chart.Points)
+                            {
+                                <g class="hpt">
+                                    <rect x="@Fmt(p.X - 1.25)" y="0" width="2.5" height="110" fill="transparent"/>
+                                    <line x1="@Fmt(p.X)" x2="@Fmt(p.X)" y1="8" y2="86"/>
+                                    <circle cx="@Fmt(p.X)" cy="@Fmt(p.Y)" r="3"/>
+                                    <text x="@Fmt(Math.Clamp(p.X, 50, 550))" y="104" text-anchor="middle">@p.Tip</text>
+                                </g>
+                            }
+                        </svg>
+                        <div class="chart-x">
+                            <span>@DateTime.Now.AddHours(-24).ToString("HH:mm")</span>
+                            <span>@DateTime.Now.ToString("HH:mm")</span>
+                        </div>
+                    </div>
+                }
+            </div>
+            }
+        </section>
+    }
+
     @if (!EspService.Devices.Any() && !AcService.Controllers.Any())
     {
         <div class="loading">
@@ -195,7 +261,7 @@
                     </div>
                 </section>
             }
-            @foreach (var device in EspService.Devices)
+            @foreach (var device in EspService.Devices.Where(d => d.Host != AcService.ProxyHost))
             {
                 <section class="device-card @(device.IsConnected ? "" : "offline")">
                     <div class="device-head">
@@ -294,6 +360,7 @@
     private string _lastAction = "";
     private DateTime _lastActionTime;
     private bool _showEditor;
+    private bool _showSettings;
     private bool _acCommandRunning;
     private System.Threading.Timer? _clock;
 
@@ -383,6 +450,67 @@
         return $"phase-{Math.Max(index, 0) % 4}";
     }
 
+    private static readonly TimeSpan HistoryWindow = TimeSpan.FromHours(24);
+    private static readonly TimeSpan BucketSize = TimeSpan.FromMinutes(6);
+
+    private record HistoryChart(string Title, string Unit, double Min, double Max, string LinePath,
+        List<(double X, double Y, string Tip, bool Isolated)> Points);
+
+    private List<HistoryChart>? BuildCharts(AcInfinityController controller)
+    {
+        var samples = HistoryService.GetHistory(controller.Name);
+        var start = DateTime.Now - HistoryWindow;
+        var recent = samples.Where(s => s.Time >= start).ToList();
+        if (recent.Count < 2) return null;
+
+        return new List<HistoryChart>
+        {
+            BuildChart("Temperature", " °C", recent, start, s => s.Temperature),
+            BuildChart("Humidity", " %", recent, start, s => s.Humidity)
+        };
+    }
+
+    private static HistoryChart BuildChart(string title, string unit, List<HistorySample> samples,
+        DateTime start, Func<HistorySample, double> select)
+    {
+        // SVG plot area inside the 600x110 viewBox
+        const double left = 6, right = 594, top = 8, bottom = 86;
+
+        // Average into 6-minute buckets; missing buckets become gaps in the line
+        var buckets = samples
+            .GroupBy(s => (int)((s.Time - start) / BucketSize))
+            .OrderBy(g => g.Key)
+            .Select(g => (Index: g.Key, Time: start + BucketSize * (g.Key + 0.5), Value: g.Average(select)))
+            .ToList();
+
+        var min = buckets.Min(b => b.Value);
+        var max = buckets.Max(b => b.Value);
+        var pad = Math.Max((max - min) * 0.1, 0.5);
+        var lo = min - pad;
+        var hi = max + pad;
+
+        var totalBuckets = (int)(HistoryWindow / BucketSize);
+        var path = new System.Text.StringBuilder();
+        var points = new List<(double X, double Y, string Tip, bool Isolated)>();
+        var prevIndex = int.MinValue;
+
+        var indices = buckets.Select(b => b.Index).ToHashSet();
+        foreach (var b in buckets)
+        {
+            var x = left + (right - left) * b.Index / (totalBuckets - 1);
+            var y = bottom - (bottom - top) * (b.Value - lo) / (hi - lo);
+            path.Append(b.Index == prevIndex + 1 ? 'L' : 'M').Append(Fmt(x)).Append(' ').Append(Fmt(y));
+            // A bucket with no neighbours draws no line segment - it needs a dot
+            var isolated = !indices.Contains(b.Index - 1) && !indices.Contains(b.Index + 1);
+            points.Add((x, y, $"{Fmt(b.Value)}{unit} · {b.Time:HH:mm}", isolated));
+            prevIndex = b.Index;
+        }
+
+        return new HistoryChart(title, unit, min, max, path.ToString(), points);
+    }
+
+    private static string Fmt(double value) => value.ToString("F1", CultureInfo.InvariantCulture);
+
     private string FanPortName(AcFanState fan)
     {
         var port = AcService.Controllers
@@ -433,6 +561,15 @@
     private static readonly MarkupString IconPlug = Icon(
         "<path d=\"M12 22v-5\"/><path d=\"M9 8V2\"/><path d=\"M15 8V2\"/>" +
         "<path d=\"M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z\"/>");
+
+    private static readonly MarkupString IconGear = Icon(
+        "<path d=\"M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 " +
+        "0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 " +
+        "0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 " +
+        "2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 " +
+        "2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 " +
+        "2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z\"/>" +
+        "<circle cx=\"12\" cy=\"12\" r=\"3\"/>");
 
     private static string CountdownTo(TimeOnly target)
     {
