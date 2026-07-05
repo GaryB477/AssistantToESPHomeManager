@@ -12,11 +12,18 @@ namespace ESP_Home_Interactor;
 /// </summary>
 public class EspBase(ESPConfig config)
 {
+    // Same values as the aioesphomeapi reference: ping every 20s, treat the
+    // connection as dead when nothing was received for 90s
+    private static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan ReceiveTimeout = TimeSpan.FromSeconds(90);
+
     private readonly Logger _logger = new Logger();
     private readonly string _password = config.Password ?? "";
 
     private CancellationTokenSource? _readLoopCts;
     private Task? _readLoopTask;
+    private Task? _pingLoopTask;
+    private DateTime _lastMessageReceived;
     private TaskCompletionSource<bool>? _entitiesDone;
     private TaskCompletionSource<bool> _disconnected = new();
 
@@ -30,6 +37,14 @@ public class EspBase(ESPConfig config)
     public List<SwitchEntity> SwitchEntities { get; private set; } = new List<SwitchEntity>();
     public List<LightEntity> LightEntities { get; private set; } = new List<LightEntity>();
 
+    // Entity discovery fills these staging lists; the public lists are swapped
+    // in one go on ListEntitiesDone. GUI and scheduler iterate the public lists
+    // concurrently - mutating them in place would race their enumeration.
+    private List<SensorEntity> _discoveredSensors = new();
+    private List<BinarySensorEntity> _discoveredBinarySensors = new();
+    private List<SwitchEntity> _discoveredSwitches = new();
+    private List<LightEntity> _discoveredLights = new();
+
     /// <summary>Raised whenever an entity state update was received</summary>
     public event Action? StateChanged;
 
@@ -40,8 +55,20 @@ public class EspBase(ESPConfig config)
     {
         await InitConnection();
         StartReadLoop();
-        await FetchAllEntities();
-        await SubscribeStates();
+
+        try
+        {
+            await FetchAllEntities();
+            await SubscribeStates();
+        }
+        catch
+        {
+            // A partial init must not leave a zombie read loop behind: it
+            // would keep the old socket alive and later null out the next
+            // connection from its finally block
+            await CloseAndAwaitLoops();
+            throw;
+        }
     }
 
     public async Task InitConnection(int timeoutMilliseconds = 5000)
@@ -81,7 +108,9 @@ public class EspBase(ESPConfig config)
     {
         _readLoopCts = new CancellationTokenSource();
         var token = _readLoopCts.Token;
+        _lastMessageReceived = DateTime.Now;
         _readLoopTask = Task.Run(() => ReadLoop(token));
+        _pingLoopTask = Task.Run(() => PingLoop(token));
     }
 
     private async Task ReadLoop(CancellationToken token)
@@ -93,6 +122,7 @@ public class EspBase(ESPConfig config)
             while (!token.IsCancellationRequested)
             {
                 var (msgType, msgData) = await connection.ReadMessage();
+                _lastMessageReceived = DateTime.Now;
                 await HandleMessage(connection, (MessageType)msgType, msgData);
             }
         }
@@ -113,12 +143,60 @@ public class EspBase(ESPConfig config)
         }
     }
 
+    /// <summary>
+    /// Detects half-open connections: a device that dies without closing the
+    /// socket (power loss, crash) would otherwise stay "connected" forever.
+    /// Any received message counts as proof of life; a connection that stays
+    /// silent past the receive timeout despite pings gets closed, which makes
+    /// the read loop exit and triggers the reconnect logic.
+    /// </summary>
+    private async Task PingLoop(CancellationToken token)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(PingInterval, token);
+
+                var connection = Connection;
+                if (connection == null) break;
+
+                if (DateTime.Now - _lastMessageReceived > ReceiveTimeout)
+                {
+                    _logger.LogWarning(
+                        $"[{Host}] No data received for {ReceiveTimeout.TotalSeconds}s - closing dead connection");
+                    connection.Close();
+                    break;
+                }
+
+                await connection.SendMessage((uint)MessageType.PingRequest, new PingRequest());
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown
+        }
+        catch (Exception ex)
+        {
+            // A failed ping send also means the connection is gone
+            if (!token.IsCancellationRequested)
+            {
+                _logger.LogWarning($"[{Host}] Ping failed: {ex.Message} - closing connection");
+                Connection?.Close();
+            }
+        }
+    }
+
     private async Task HandleMessage(ESPHomeConnection connection, MessageType msgType, byte[] msgData)
     {
         switch (msgType)
         {
             case MessageType.PingRequest:
                 await connection.SendMessage((uint)MessageType.PingResponse, new PingResponse());
+                break;
+
+            case MessageType.PingResponse:
+                // Proof of life already recorded by the read loop
                 break;
 
             case MessageType.DisconnectRequest:
@@ -129,7 +207,7 @@ public class EspBase(ESPConfig config)
             case MessageType.ListEntitiesSensorResponse:
             {
                 var sensorEntity = ListEntitiesSensorResponse.Parser.ParseFrom(msgData);
-                SensorEntities.Add(new SensorEntity(sensorEntity.Key, sensorEntity.Name, sensorEntity.ObjectId,
+                _discoveredSensors.Add(new SensorEntity(sensorEntity.Key, sensorEntity.Name, sensorEntity.ObjectId,
                     sensorEntity.UnitOfMeasurement, sensorEntity.AccuracyDecimals));
                 _logger.LogIncoming($"Found sensor: '{sensorEntity.Name}' (key: {sensorEntity.Key})");
                 break;
@@ -138,7 +216,7 @@ public class EspBase(ESPConfig config)
             case MessageType.ListEntitiesBinarySensorResponse:
             {
                 var binarySensorEntity = ListEntitiesBinarySensorResponse.Parser.ParseFrom(msgData);
-                BinarySensorEntities.Add(new BinarySensorEntity(binarySensorEntity.Key, binarySensorEntity.Name,
+                _discoveredBinarySensors.Add(new BinarySensorEntity(binarySensorEntity.Key, binarySensorEntity.Name,
                     binarySensorEntity.ObjectId));
                 _logger.LogIncoming($"Found binary sensor: '{binarySensorEntity.Name}' (key: {binarySensorEntity.Key})");
                 break;
@@ -147,7 +225,7 @@ public class EspBase(ESPConfig config)
             case MessageType.ListEntitiesSwitchResponse:
             {
                 var switchEntity = ListEntitiesSwitchResponse.Parser.ParseFrom(msgData);
-                SwitchEntities.Add(new SwitchEntity(switchEntity.Key, switchEntity.Name, switchEntity.ObjectId));
+                _discoveredSwitches.Add(new SwitchEntity(switchEntity.Key, switchEntity.Name, switchEntity.ObjectId));
                 _logger.LogIncoming($"Found switch: '{switchEntity.Name}' (key: {switchEntity.Key})");
                 break;
             }
@@ -158,13 +236,17 @@ public class EspBase(ESPConfig config)
                 // COLOR_MODE_BRIGHTNESS bit (2) covers modern configs, legacy flag older firmwares
                 var supportsBrightness = lightEntity.LegacySupportsBrightness ||
                                          lightEntity.SupportedColorModes.Any(m => ((int)m & 2) != 0);
-                LightEntities.Add(new LightEntity(lightEntity.Key, lightEntity.Name, lightEntity.ObjectId,
+                _discoveredLights.Add(new LightEntity(lightEntity.Key, lightEntity.Name, lightEntity.ObjectId,
                     supportsBrightness));
                 _logger.LogIncoming($"Found light: '{lightEntity.Name}' (key: {lightEntity.Key})");
                 break;
             }
 
             case MessageType.ListEntitiesDoneResponse:
+                SensorEntities = _discoveredSensors;
+                BinarySensorEntities = _discoveredBinarySensors;
+                SwitchEntities = _discoveredSwitches;
+                LightEntities = _discoveredLights;
                 _entitiesDone?.TrySetResult(true);
                 break;
 
@@ -236,13 +318,22 @@ public class EspBase(ESPConfig config)
             _logger.LogWarning($"Disconnect error: {ex.Message}");
         }
 
+        await CloseAndAwaitLoops();
+
+        _logger.LogSuccess("Connection closed");
+    }
+
+    private async Task CloseAndAwaitLoops()
+    {
         _readLoopCts?.Cancel();
         Connection?.Close();
 
         if (_readLoopTask != null)
             await _readLoopTask;
+        if (_pingLoopTask != null)
+            await _pingLoopTask;
 
-        _logger.LogSuccess("Connection closed");
+        Connection = null;
     }
 
     private async Task SendHelloWorld(ESPHomeConnection connection)
@@ -320,10 +411,10 @@ public class EspBase(ESPConfig config)
     {
         if (Connection == null) throw new InvalidOperationException("Connection not initialized");
 
-        SensorEntities.Clear();
-        BinarySensorEntities.Clear();
-        SwitchEntities.Clear();
-        LightEntities.Clear();
+        _discoveredSensors = new List<SensorEntity>();
+        _discoveredBinarySensors = new List<BinarySensorEntity>();
+        _discoveredSwitches = new List<SwitchEntity>();
+        _discoveredLights = new List<LightEntity>();
 
         _entitiesDone = new TaskCompletionSource<bool>();
 

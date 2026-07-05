@@ -11,10 +11,10 @@
 <div class="dashboard">
     <header class="app-header">
         <div class="app-title">
-            <h1><span class="app-logo">🌱</span> HomePeter</h1>
+            <h1><span class="app-logo">@IconLeaf</span> HomePeter</h1>
             <p class="app-subtitle">Homegrow Dashboard</p>
         </div>
-        <div class="app-clock">@DateTime.Now.ToString("HH:mm:ss")</div>
+        <div class="app-clock">@DateTime.Now.ToString("HH:mm")</div>
     </header>
 
     @if (!string.IsNullOrEmpty(_lastAction) && (DateTime.Now - _lastActionTime).TotalSeconds < 6)
@@ -109,7 +109,7 @@
                             @foreach (var fan in phase.AcFans)
                             {
                                 <div class="actor-editor">
-                                    <span class="actor-name">🌀 Port @fan.Port <small>@fan.Controller</small></span>
+                                    <span class="actor-name">@IconFan @FanPortName(fan) <small>@fan.Controller · Port @fan.Port</small></span>
                                     <label class="field slider">
                                         <span>Level <strong>@fan.Level/10</strong></span>
                                         <input type="range" min="0" max="10"
@@ -126,17 +126,24 @@
         }
     </section>
 
-    @if (AcService.Controllers.Any())
+    @if (!EspService.Devices.Any() && !AcService.Controllers.Any())
+    {
+        <div class="loading">
+            <div class="spinner"></div>
+            <p>Connecting to ESP devices...</p>
+        </div>
+    }
+    else
     {
         <div class="device-grid">
             @foreach (var controller in AcService.Controllers)
             {
                 var online = controller.LastSeen.HasValue &&
                              (DateTime.Now - controller.LastSeen.Value).TotalSeconds < 60;
-                <section class="device-card ac-card @(online ? "" : "offline")">
+                <section class="device-card @(online ? "" : "offline")">
                     <div class="device-head">
                         <span class="conn-dot @(online ? "online" : "")"></span>
-                        <h2>🌀 @controller.Name</h2>
+                        <h2>@controller.Name</h2>
                         <span class="conn-label">@(online ? "advertising" : "not seen")</span>
                     </div>
 
@@ -167,7 +174,7 @@
                             var level = controller.PortLevels.GetValueOrDefault(port.Port, 0);
                             <div class="entity-card fan @(level > 0 ? "on" : "")">
                                 <div class="entity-head">
-                                    <span class="entity-icon">🌀</span>
+                                    <span class="entity-icon">@IconFan</span>
                                     <span class="entity-name">@port.Name</span>
                                     <button class="toggle-pill @(level > 0 ? "on" : "")"
                                             type="button"
@@ -188,19 +195,6 @@
                     </div>
                 </section>
             }
-        </div>
-    }
-
-    @if (!EspService.Devices.Any())
-    {
-        <div class="loading">
-            <div class="spinner"></div>
-            <p>Connecting to ESP devices...</p>
-        </div>
-    }
-    else
-    {
-        <div class="device-grid">
             @foreach (var device in EspService.Devices)
             {
                 <section class="device-card @(device.IsConnected ? "" : "offline")">
@@ -220,7 +214,7 @@
                                 var currentLight = light;
                                 <div class="entity-card light @(light.GetValue() ? "on" : "")">
                                     <div class="entity-head">
-                                        <span class="entity-icon">💡</span>
+                                        <span class="entity-icon">@IconBulb</span>
                                         <span class="entity-name">@light.Name</span>
                                         <button class="toggle-pill @(light.GetValue() ? "on" : "")"
                                                 type="button"
@@ -254,7 +248,7 @@
                                 var currentSwitch = switchEntity;
                                 <div class="entity-card @(switchEntity.GetValue() ? "on" : "")">
                                     <div class="entity-head">
-                                        <span class="entity-icon">🔌</span>
+                                        <span class="entity-icon">@IconPlug</span>
                                         <span class="entity-name">@switchEntity.Name</span>
                                         <button class="toggle-pill @(switchEntity.GetValue() ? "on" : "")"
                                                 type="button"
@@ -389,13 +383,56 @@
         return $"phase-{Math.Max(index, 0) % 4}";
     }
 
-    private static string PhaseIcon(string phaseName)
+    private string FanPortName(AcFanState fan)
+    {
+        var port = AcService.Controllers
+            .FirstOrDefault(c => c.Name == fan.Controller)?
+            .Ports.FirstOrDefault(p => p.Port == fan.Port);
+        return port?.Name ?? $"Port {fan.Port}";
+    }
+
+    private static MarkupString PhaseIcon(string phaseName)
     {
         var name = phaseName.ToLowerInvariant();
-        if (name.Contains("high") || name.Contains("day")) return "🌞";
-        if (name.Contains("low") || name.Contains("night")) return "🌙";
-        return "⏱";
+        if (name.Contains("high") || name.Contains("day")) return IconSun;
+        if (name.Contains("low") || name.Contains("night")) return IconMoon;
+        return IconTimer;
     }
+
+    // Inline stroke icons (Lucide outlines) - consistent rendering everywhere,
+    // colorable via currentColor, no font/emoji dependency
+    private static MarkupString Icon(string paths) => new(
+        "<svg class=\"icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" " +
+        "stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">" + paths + "</svg>");
+
+    private static readonly MarkupString IconLeaf = Icon(
+        "<path d=\"M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z\"/>" +
+        "<path d=\"M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12\"/>");
+
+    private static readonly MarkupString IconSun = Icon(
+        "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/>" +
+        "<path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/>" +
+        "<path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/>");
+
+    private static readonly MarkupString IconMoon = Icon(
+        "<path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/>");
+
+    private static readonly MarkupString IconTimer = Icon(
+        "<line x1=\"10\" x2=\"14\" y1=\"2\" y2=\"2\"/><line x1=\"12\" x2=\"15\" y1=\"14\" y2=\"11\"/>" +
+        "<circle cx=\"12\" cy=\"14\" r=\"8\"/>");
+
+    private static readonly MarkupString IconFan = Icon(
+        "<path d=\"M10.827 16.379a6.082 6.082 0 0 1-8.618-7.002l5.412 1.45a6.082 6.082 0 0 1 " +
+        "7.002-8.618l-1.45 5.412a6.082 6.082 0 0 1 8.618 7.002l-5.412-1.45a6.082 6.082 0 0 1 " +
+        "-7.002 8.618l1.45-5.412Z\"/><path d=\"M12 12v.01\"/>");
+
+    private static readonly MarkupString IconBulb = Icon(
+        "<path d=\"M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 " +
+        "1.5 3.5.7.7 1.3 1.5 1.5 2.5\"/><path d=\"M9 18h6\"/><path d=\"M10 22h4\"/>");
+
+    private static readonly MarkupString IconPlug = Icon(
+        "<path d=\"M12 22v-5\"/><path d=\"M9 8V2\"/><path d=\"M15 8V2\"/>" +
+        "<path d=\"M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z\"/>");
 
     private static string CountdownTo(TimeOnly target)
     {

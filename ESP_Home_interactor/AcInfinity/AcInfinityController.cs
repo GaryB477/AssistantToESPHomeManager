@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using ESP_Home_Interactor.helper;
 
 namespace ESP_Home_Interactor.AcInfinity;
@@ -27,8 +28,9 @@ public class AcInfinityController
     public double? Vpd { get; private set; }
     public DateTime? LastSeen { get; private set; }
 
-    /// <summary>Last level set per port (advertisements only carry the display-selected port)</summary>
-    public Dictionary<int, int> PortLevels { get; } = new();
+    /// <summary>Last level set per port (advertisements only carry the display-selected port).
+    /// Concurrent: written by command tasks, read by GUI render and scheduler.</summary>
+    public ConcurrentDictionary<int, int> PortLevels { get; } = new();
 
     public event Action? StateChanged;
 

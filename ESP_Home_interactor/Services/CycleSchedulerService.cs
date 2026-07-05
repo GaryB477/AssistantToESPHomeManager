@@ -90,14 +90,28 @@ public class CycleSchedulerService : BackgroundService
     {
         _logger.LogInformation("Cycle Scheduler starting...");
 
-        try
+        // Never give up on a read failure: a disabled scheduler means the grow
+        // lights stop switching. Keep retrying so a fixed config file gets
+        // picked up without an app restart.
+        while (CycleConfig == null)
         {
-            CycleConfig = await LightCycleConfig.Read(_configPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to read cycle configuration from {Path} - scheduler disabled", _configPath);
-            return;
+            try
+            {
+                CycleConfig = await LightCycleConfig.Read(_configPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to read cycle configuration from {Path} - retrying in 30s", _configPath);
+
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+            }
         }
 
         while (!stoppingToken.IsCancellationRequested)

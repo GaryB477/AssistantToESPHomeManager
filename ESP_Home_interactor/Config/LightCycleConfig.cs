@@ -27,8 +27,15 @@ public class LightCycleConfig
 
     public async Task Save(string path)
     {
-        await using var stream = File.Create(path);
-        await JsonSerializer.SerializeAsync(stream, this, SerializerOptions);
+        // Write to a temp file first: a crash mid-write must not be able to
+        // corrupt the existing config (the scheduler depends on it at startup)
+        var tmpPath = path + ".tmp";
+        await using (var stream = File.Create(tmpPath))
+        {
+            await JsonSerializer.SerializeAsync(stream, this, SerializerOptions);
+        }
+
+        File.Move(tmpPath, path, overwrite: true);
     }
 
     /// <summary>

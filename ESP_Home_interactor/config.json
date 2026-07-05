@@ -1,10 +1,6 @@
 {
   "ESPNode": [
     {
-      "Host": "192.168.0.26",
-      "Port": 6053
-    },
-    {
       "Host": "192.168.0.15",
       "Port": 6053,
       "Password": "U7u4M1JcxItZ/XmJ+/zrG6Y/Gev5aJD36LA6joXsbhM="

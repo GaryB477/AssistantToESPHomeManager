@@ -8,13 +8,18 @@
           "Host": "192.168.0.15",
           "ObjectId": "main_light",
           "On": true,
-          "Brightness": 0.32
+          "Brightness": 0.5
         }
       ],
       "AcFans": [
         {
           "Controller": "Controller 69",
           "Port": 2,
+          "Level": 5
+        },
+        {
+          "Controller": "Controller 69",
+          "Port": 3,
           "Level": 5
         }
       ]
@@ -34,7 +39,12 @@
         {
           "Controller": "Controller 69",
           "Port": 2,
-          "Level": 2
+          "Level": 0
+        },
+        {
+          "Controller": "Controller 69",
+          "Port": 3,
+          "Level": 0
         }
       ]
     }
