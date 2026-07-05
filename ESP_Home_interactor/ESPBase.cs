@@ -1,29 +1,44 @@
 using System.Net.Sockets;
 using ESP_Home_Interactor.Entities;
 using ESP_Home_Interactor.helper;
-using Google.Protobuf.WellKnownTypes;
 
 namespace ESP_Home_Interactor;
 
 /// <summary>
 /// High-level ESPHome API client
-/// Handles device connection, entity discovery, and device control
+/// Handles device connection, entity discovery, and device control.
+/// Runs a persistent read loop that dispatches incoming messages
+/// (ping requests, state updates, entity listings) by message type.
 /// </summary>
 public class EspBase(ESPConfig config)
 {
     private readonly Logger _logger = new Logger();
+    private readonly string _password = config.Password ?? "";
+
+    private CancellationTokenSource? _readLoopCts;
+    private Task? _readLoopTask;
+    private TaskCompletionSource<bool>? _entitiesDone;
+    private TaskCompletionSource<bool> _disconnected = new();
 
     public int Port { get; set; } = config.Port;
     public string Host { get; set; } = config.Host;
-    public ESPHomeConnection? Connection;
+    public ESPHomeConnection? Connection { get; private set; }
+    public bool IsConnected => Connection != null;
+
     public List<SensorEntity> SensorEntities { get; private set; } = new List<SensorEntity>();
     public List<BinarySensorEntity> BinarySensorEntities { get; private set; } = new List<BinarySensorEntity>();
     public List<SwitchEntity> SwitchEntities { get; private set; } = new List<SwitchEntity>();
+    public List<LightEntity> LightEntities { get; private set; } = new List<LightEntity>();
+
+    /// <summary>Raised whenever an entity state update was received</summary>
+    public event Action? StateChanged;
 
     public async Task Init()
     {
         await InitConnection();
-        await FetchAllSensorEntities();
+        StartReadLoop();
+        await FetchAllEntities();
+        await SubscribeStates();
     }
 
     public async Task InitConnection(int timeoutMilliseconds = 5000)
@@ -36,182 +51,184 @@ public class EspBase(ESPConfig config)
             await socket.ConnectAsync(Host, Port, cts.Token);
             var stream = new NetworkStream(socket);
             Connection = new ESPHomeConnection(socket, stream);
+            _disconnected = new TaskCompletionSource<bool>();
             await SendHelloWorld(Connection);
             await Authenticate(Connection);
         }
         catch (OperationCanceledException)
         {
+            Connection = null;
             throw new TimeoutException($"Connection to {Host}:{Port} timed out after {timeoutMilliseconds}ms");
         }
+        catch
+        {
+            Connection = null;
+            throw;
+        }
     }
 
-    public async Task Sync()
+    /// <summary>
+    /// Completes when the connection is lost or closed. Used by the device
+    /// service to trigger reconnects.
+    /// </summary>
+    public Task WaitForDisconnect(CancellationToken cancellationToken) =>
+        _disconnected.Task.WaitAsync(cancellationToken);
+
+    private void StartReadLoop()
     {
-        if (Connection == null) throw new InvalidOperationException("Connection not initialized");
-        if ((SensorEntities.Count +
-             BinarySensorEntities.Count +
-             SwitchEntities.Count) == 0) throw new InvalidOperationException("No sensors found");
-
-        await UpdateAllSensorStates();
-
-        await DrainMessages(Connection, 500);
+        _readLoopCts = new CancellationTokenSource();
+        var token = _readLoopCts.Token;
+        _readLoopTask = Task.Run(() => ReadLoop(token));
     }
 
-    private async Task UpdateAllSensorStates(int timeoutMilliseconds = 2000)
+    private async Task ReadLoop(CancellationToken token)
     {
-        if (Connection == null) throw new InvalidOperationException("Connection not initialized");
-
-        _logger.LogEmpty();
-        _logger.LogSeparator("Updating Sensor States");
-
-        // Send SubscribeStatesRequest
-        var subscribeRequest = new SubscribeStatesRequest();
-        await Connection.SendMessage((uint)MessageType.SubscribeStatesRequest, subscribeRequest);
-        _logger.LogOutgoing("Sent SubscribeStatesRequest");
-
-        using var cts = new CancellationTokenSource(timeoutMilliseconds);
-        int updatedCount = 0;
+        var connection = Connection!;
 
         try
         {
-            while (!cts.Token.IsCancellationRequested)
+            while (!token.IsCancellationRequested)
             {
-                // Check if data is available before trying to read
-                if (!Connection.DataAvailable)
-                {
-                    await Task.Delay(50, cts.Token);
-                    continue;
-                }
-
-                var (msgType, msgData) = await Connection.ReadMessage();
-
-                switch (msgType)
-                {
-                    case (uint)MessageType.SwitchStateResponse:
-                    {
-                        var state = SwitchStateResponse.Parser.ParseFrom(msgData);
-                        var entity = SwitchEntities.FirstOrDefault(e => e.Key == state.Key);
-                        if (entity != null)
-                        {
-                            entity.UpdateState(msgData);
-                            updatedCount++;
-                        }
-
-                        break;
-                    }
-                    case (uint)MessageType.SensorStateResponse:
-                    {
-                        var state = SensorStateResponse.Parser.ParseFrom(msgData);
-                        var entity = SensorEntities.FirstOrDefault(e => e.Key == state.Key);
-                        if (entity != null)
-                        {
-                            entity.UpdateState(msgData);
-                            updatedCount++;
-                        }
-
-                        break;
-                    }
-                    case (uint)MessageType.BinarySensorStateResponse:
-                    {
-                        var state = BinarySensorStateResponse.Parser.ParseFrom(msgData);
-                        var entity = BinarySensorEntities.FirstOrDefault(e => e.Key == state.Key);
-                        if (entity != null)
-                        {
-                            entity.UpdateState(msgData);
-                            updatedCount++;
-                        }
-
-                        break;
-                    }
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Timeout reached - this is normal
-        }
-        catch (EndOfStreamException)
-        {
-            _logger.LogWarning("Connection closed during state update");
-        }
-
-        _logger.LogSuccess($"Updated {updatedCount} sensor state(s)");
-    }
-
-    private async Task DrainMessages(ESPHomeConnection connection, int milliseconds)
-    {
-        _logger.Log($"Draining remaining messages...");
-        using var cts = new CancellationTokenSource();
-        cts.CancelAfter(milliseconds);
-        int count = 0;
-
-        try
-        {
-            while (!cts.Token.IsCancellationRequested)
-            {
-                // Check if data is available before trying to read
-                if (!connection.DataAvailable)
-                {
-                    await Task.Delay(50, cts.Token);
-                    continue;
-                }
-
                 var (msgType, msgData) = await connection.ReadMessage();
-                count++;
-                _logger.Log($"  Drained message type: {msgType}");
+                await HandleMessage(connection, (MessageType)msgType, msgData);
             }
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (ex is EndOfStreamException or IOException or ObjectDisposedException or SocketException)
         {
-            // Timeout reached - this is normal
+            if (!token.IsCancellationRequested)
+                _logger.LogWarning($"[{Host}] Connection lost: {ex.Message}");
         }
-        catch (EndOfStreamException)
+        catch (Exception ex)
         {
-            // Connection closed
+            _logger.LogError($"[{Host}] Read loop error: {ex.Message}");
         }
+        finally
+        {
+            Connection = null;
+            _entitiesDone?.TrySetException(new EndOfStreamException($"[{Host}] Connection closed"));
+            _disconnected.TrySetResult(true);
+        }
+    }
 
-        if (count > 0)
+    private async Task HandleMessage(ESPHomeConnection connection, MessageType msgType, byte[] msgData)
+    {
+        switch (msgType)
         {
-            _logger.Log($"Drained {count} pending message(s)\n");
+            case MessageType.PingRequest:
+                await connection.SendMessage((uint)MessageType.PingResponse, new PingResponse());
+                break;
+
+            case MessageType.DisconnectRequest:
+                await connection.SendMessage((uint)MessageType.DisconnectResponse, new DisconnectResponse());
+                connection.Close();
+                break;
+
+            case MessageType.ListEntitiesSensorResponse:
+            {
+                var sensorEntity = ListEntitiesSensorResponse.Parser.ParseFrom(msgData);
+                SensorEntities.Add(new SensorEntity(sensorEntity.Key, sensorEntity.Name, sensorEntity.ObjectId,
+                    sensorEntity.UnitOfMeasurement, sensorEntity.AccuracyDecimals));
+                _logger.LogIncoming($"Found sensor: '{sensorEntity.Name}' (key: {sensorEntity.Key})");
+                break;
+            }
+
+            case MessageType.ListEntitiesBinarySensorResponse:
+            {
+                var binarySensorEntity = ListEntitiesBinarySensorResponse.Parser.ParseFrom(msgData);
+                BinarySensorEntities.Add(new BinarySensorEntity(binarySensorEntity.Key, binarySensorEntity.Name,
+                    binarySensorEntity.ObjectId));
+                _logger.LogIncoming($"Found binary sensor: '{binarySensorEntity.Name}' (key: {binarySensorEntity.Key})");
+                break;
+            }
+
+            case MessageType.ListEntitiesSwitchResponse:
+            {
+                var switchEntity = ListEntitiesSwitchResponse.Parser.ParseFrom(msgData);
+                SwitchEntities.Add(new SwitchEntity(switchEntity.Key, switchEntity.Name, switchEntity.ObjectId));
+                _logger.LogIncoming($"Found switch: '{switchEntity.Name}' (key: {switchEntity.Key})");
+                break;
+            }
+
+            case MessageType.ListEntitiesLightResponse:
+            {
+                var lightEntity = ListEntitiesLightResponse.Parser.ParseFrom(msgData);
+                // COLOR_MODE_BRIGHTNESS bit (2) covers modern configs, legacy flag older firmwares
+                var supportsBrightness = lightEntity.LegacySupportsBrightness ||
+                                         lightEntity.SupportedColorModes.Any(m => ((int)m & 2) != 0);
+                LightEntities.Add(new LightEntity(lightEntity.Key, lightEntity.Name, lightEntity.ObjectId,
+                    supportsBrightness));
+                _logger.LogIncoming($"Found light: '{lightEntity.Name}' (key: {lightEntity.Key})");
+                break;
+            }
+
+            case MessageType.ListEntitiesDoneResponse:
+                _entitiesDone?.TrySetResult(true);
+                break;
+
+            case MessageType.SensorStateResponse:
+            {
+                var state = SensorStateResponse.Parser.ParseFrom(msgData);
+                UpdateEntityState(SensorEntities.FirstOrDefault(e => e.Key == state.Key), msgData);
+                break;
+            }
+
+            case MessageType.BinarySensorStateResponse:
+            {
+                var state = BinarySensorStateResponse.Parser.ParseFrom(msgData);
+                UpdateEntityState(BinarySensorEntities.FirstOrDefault(e => e.Key == state.Key), msgData);
+                break;
+            }
+
+            case MessageType.SwitchStateResponse:
+            {
+                var state = SwitchStateResponse.Parser.ParseFrom(msgData);
+                UpdateEntityState(SwitchEntities.FirstOrDefault(e => e.Key == state.Key), msgData);
+                break;
+            }
+
+            case MessageType.LightStateResponse:
+            {
+                var state = LightStateResponse.Parser.ParseFrom(msgData);
+                UpdateEntityState(LightEntities.FirstOrDefault(e => e.Key == state.Key), msgData);
+                break;
+            }
+
+            default:
+                _logger.Log($"[{Host}] Ignoring message type {msgType} ({msgData.Length} bytes)");
+                break;
         }
+    }
+
+    private void UpdateEntityState<T>(EntityBase<T>? entity, byte[] msgData)
+    {
+        if (entity == null) return;
+        entity.UpdateState(msgData);
+        StateChanged?.Invoke();
     }
 
     public async Task Cleanup()
     {
-        _logger.LogSeparator("Disconnecting");
+        if (Connection == null) return;
 
-        // Send DisconnectRequest
-        var disconnectRequest = new DisconnectRequest();
-        if (Connection == null) throw new InvalidOperationException("Connection not initialized");
-        await Connection?.SendMessage((uint)MessageType.DisconnectRequest, disconnectRequest)!;
-        _logger.LogOutgoing("Sent DisconnectRequest");
+        _logger.LogSeparator($"Disconnecting from {Host}");
 
-        // Wait for DisconnectResponse
         try
         {
-            var timeout = Task.Delay(5000);
-            var readTask = Connection.ReadMessage();
-            var completedTask = await Task.WhenAny(readTask, timeout);
-
-            if (completedTask == readTask)
-            {
-                var (msgType, msgData) = await readTask;
-                if (msgType == (uint)MessageType.DisconnectResponse)
-                    _logger.LogIncoming("Received DisconnectResponse");
-            }
-            else
-            {
-                _logger.LogWarning("Disconnect timeout");
-            }
+            await Connection.SendMessage((uint)MessageType.DisconnectRequest, new DisconnectRequest());
+            _logger.LogOutgoing("Sent DisconnectRequest");
         }
         catch (Exception ex)
         {
             _logger.LogWarning($"Disconnect error: {ex.Message}");
         }
 
-        Connection.Close();
+        _readLoopCts?.Cancel();
+        Connection?.Close();
+
+        if (_readLoopTask != null)
+            await _readLoopTask;
+
         _logger.LogSuccess("Connection closed");
-        _logger.LogEmpty();
     }
 
     private async Task SendHelloWorld(ESPHomeConnection connection)
@@ -242,24 +259,17 @@ public class EspBase(ESPConfig config)
 
     private async Task Authenticate(ESPHomeConnection connection)
     {
-        // Send AuthenticationRequest (empty password)
-        var authRequest = new AuthenticationRequest();
+        var authRequest = new AuthenticationRequest { Password = _password };
         await connection.SendMessage((uint)MessageType.AuthenticationRequest, authRequest);
         _logger.LogOutgoing("Sent AuthenticationRequest");
 
-        // IMPORTANT: According to ESPHome protocol, the device will ONLY send
-        // AuthenticationResponse if authentication FAILS. If authentication succeeds
-        // or is not required, the device will NOT send a response - it will just
-        // continue with normal operation (sending pings, etc.)
-        //
-        // Therefore, we check if there's an immediate response. If we get an
-        // AuthenticationResponse, it means auth failed. Otherwise, we assume success.
-
-        using var cts = new CancellationTokenSource(1000); // Wait up to 1 second
+        // The device replies with an AuthenticationResponse (invalid_password flag).
+        // Some firmwares skip the response when no password is configured, so a
+        // short timeout counts as success.
+        using var cts = new CancellationTokenSource(2000);
 
         try
         {
-            // Check if there's data available with a short timeout
             while (!cts.Token.IsCancellationRequested)
             {
                 if (connection.DataAvailable)
@@ -276,13 +286,9 @@ public class EspBase(ESPConfig config)
                         _logger.LogIncoming("Received AuthenticationResponse (authenticated)");
                         return;
                     }
-                    else
-                    {
-                        // Got some other message - auth must have succeeded, but we need to
-                        // handle this message. For now, just log it as unexpected
-                        _logger.LogWarning($"Got message type {msgType} after auth request - assuming auth succeeded");
-                        return;
-                    }
+
+                    _logger.LogWarning($"Got message type {msgType} after auth request - assuming auth succeeded");
+                    return;
                 }
 
                 await Task.Delay(50, cts.Token);
@@ -296,65 +302,32 @@ public class EspBase(ESPConfig config)
         _logger.LogIncoming("No AuthenticationResponse received - authentication succeeded");
     }
 
-    public async Task FetchAllSensorEntities()
+    public async Task FetchAllEntities(int timeoutMilliseconds = 10000)
     {
         if (Connection == null) throw new InvalidOperationException("Connection not initialized");
-        // Send ListEntitiesRequest
-        var listEntitiesRequest = new ListEntitiesRequest();
-        await Connection.SendMessage((uint)MessageType.ListEntitiesRequest, listEntitiesRequest);
-        _logger.LogEmpty();
+
+        SensorEntities.Clear();
+        BinarySensorEntities.Clear();
+        SwitchEntities.Clear();
+        LightEntities.Clear();
+
+        _entitiesDone = new TaskCompletionSource<bool>();
+
+        await Connection.SendMessage((uint)MessageType.ListEntitiesRequest, new ListEntitiesRequest());
         _logger.LogOutgoing("Sent ListEntitiesRequest");
 
-        while (true)
-        {
-            try
-            {
-                var (msgType, msgData) = await Connection.ReadMessage();
+        await _entitiesDone.Task.WaitAsync(TimeSpan.FromMilliseconds(timeoutMilliseconds));
 
-                // Abort if end is reached
-                if (msgType == (uint)MessageType.ListEntitiesDoneResponse)
-                {
-                    var sensorSum = SensorEntities.Count + BinarySensorEntities.Count + SwitchEntities.Count;
-                    _logger.LogIncoming($"Received ListEntitiesDoneResponse ({sensorSum} sensors found)");
-                    break;
-                }
+        var entitySum = SensorEntities.Count + BinarySensorEntities.Count +
+                        SwitchEntities.Count + LightEntities.Count;
+        _logger.LogIncoming($"Received ListEntitiesDoneResponse ({entitySum} entities found)");
+    }
 
-                switch (msgType)
-                {
-                    case (uint)MessageType.ListEntitiesSwitchResponse:
-                        var switchEntity = ListEntitiesSwitchResponse.Parser.ParseFrom(msgData);
-                        SwitchEntities.Add(new SwitchEntity(switchEntity.Key, switchEntity.Name,
-                            switchEntity.ObjectId));
-                        _logger.LogIncoming($"Found sensor: '{switchEntity.Name}' (key: {switchEntity.Key})");
-                        break;
-                    case (uint)MessageType.ListEntitiesSensorResponse:
-                    {
-                        var sensorEntity = ListEntitiesSensorResponse.Parser.ParseFrom(msgData);
-                        SensorEntities.Add(new SensorEntity(sensorEntity.Key, sensorEntity.Name, sensorEntity.ObjectId,
-                            sensorEntity.UnitOfMeasurement, sensorEntity.AccuracyDecimals));
-                        _logger.LogIncoming($"Found sensor: '{sensorEntity.Name}' (key: {sensorEntity.Key})");
-                        break;
-                    }
-                    case (uint)MessageType.ListEntitiesBinarySensorResponse:
-                    {
-                        var binarySensorEntity = ListEntitiesBinarySensorResponse.Parser.ParseFrom(msgData);
-                        BinarySensorEntities.Add(new BinarySensorEntity(binarySensorEntity.Key, binarySensorEntity.Name,
-                            binarySensorEntity.ObjectId));
-                        _logger.LogIncoming(
-                            $"Found binary sensor: '{binarySensorEntity.Name}' (key: {binarySensorEntity.Key})");
-                        break;
-                    }
-                    default:
-                        // Log ignored entity types for debugging
-                        _logger.LogIncoming($"Ignoring entity type {msgType} ({msgData.Length} bytes)");
-                        break;
-                }
-            }
-            catch (EndOfStreamException ex)
-            {
-                _logger.LogError($"Connection closed during entity listing: {ex.Message}");
-                break;
-            }
-        }
+    private async Task SubscribeStates()
+    {
+        if (Connection == null) throw new InvalidOperationException("Connection not initialized");
+
+        await Connection.SendMessage((uint)MessageType.SubscribeStatesRequest, new SubscribeStatesRequest());
+        _logger.LogOutgoing("Sent SubscribeStatesRequest");
     }
 }

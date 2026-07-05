@@ -195,6 +195,7 @@ public struct ESPConfig
 {
     public required string Host { get; set; }
     public required int Port { get; set; }
+    public string? Password { get; set; }
     public EntitySwitch[]? Switches { get; set; }
     // will implement other entities later
 }

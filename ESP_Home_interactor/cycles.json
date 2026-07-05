@@ -1,0 +1,28 @@
+{
+  "Phases": [
+    {
+      "Name": "High",
+      "Start": "04:00:00",
+      "Actors": [
+        {
+          "Host": "192.168.0.15",
+          "ObjectId": "main_light",
+          "On": true,
+          "Brightness": 0.32
+        }
+      ]
+    },
+    {
+      "Name": "Low",
+      "Start": "16:00:00",
+      "Actors": [
+        {
+          "Host": "192.168.0.15",
+          "ObjectId": "main_light",
+          "On": false,
+          "Brightness": null
+        }
+      ]
+    }
+  ]
+}

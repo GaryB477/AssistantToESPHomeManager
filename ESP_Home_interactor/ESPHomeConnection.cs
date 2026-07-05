@@ -11,6 +11,7 @@ public class ESPHomeConnection : IDisposable
 {
     private readonly Socket _socket;
     private readonly NetworkStream _stream;
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
 
     public ESPHomeConnection(Socket socket, NetworkStream stream)
     {
@@ -29,18 +30,27 @@ public class ESPHomeConnection : IDisposable
     {
         var data = message.ToByteArray();
 
-        // Write preamble (0x00)
-        await _stream.WriteAsync(new byte[] { 0x00 });
+        // Serialize writers: UI, scheduler and ping replies share this connection
+        await _writeLock.WaitAsync();
+        try
+        {
+            // Write preamble (0x00)
+            await _stream.WriteAsync(new byte[] { 0x00 });
 
-        // Write message length as VarInt
-        await WriteVarInt((uint)data.Length);
+            // Write message length as VarInt
+            await WriteVarInt((uint)data.Length);
 
-        // Write message type as VarInt
-        await WriteVarInt(messageType);
+            // Write message type as VarInt
+            await WriteVarInt(messageType);
 
-        // Write message data
-        await _stream.WriteAsync(data);
-        await _stream.FlushAsync();
+            // Write message data
+            await _stream.WriteAsync(data);
+            await _stream.FlushAsync();
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 
     /// <summary>

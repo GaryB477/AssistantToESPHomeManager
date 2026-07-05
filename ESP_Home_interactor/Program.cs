@@ -7,9 +7,12 @@ builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
 
 // Add ESP Device Service
-builder.Services.AddHostedService<EspDeviceService>();
-builder.Services.AddSingleton<EspDeviceService>(sp =>
-    sp.GetServices<IHostedService>().OfType<EspDeviceService>().First());
+builder.Services.AddSingleton<EspDeviceService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<EspDeviceService>());
+
+// Add Cycle Scheduler
+builder.Services.AddSingleton<CycleSchedulerService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<CycleSchedulerService>());
 
 var app = builder.Build();
 

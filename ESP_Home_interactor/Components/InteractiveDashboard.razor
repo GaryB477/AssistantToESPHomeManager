@@ -1,153 +1,408 @@
 @namespace ESP_Home_Interactor.Components
+@using ESP_Home_Interactor.Config
 @using ESP_Home_Interactor.Services
 @using ESP_Home_Interactor.Entities
 @inject EspDeviceService EspService
+@inject CycleSchedulerService CycleService
 @implements IDisposable
 
 <div class="dashboard">
-    <h1>ESPHome Dashboard</h1>
-    <p class="update-time">Last updated: @DateTime.Now.ToString("HH:mm:ss")</p>
-    
-    @if (!string.IsNullOrEmpty(_lastAction))
+    <header class="app-header">
+        <div class="app-title">
+            <h1><span class="app-logo">🌱</span> HomePeter</h1>
+            <p class="app-subtitle">Homegrow Dashboard</p>
+        </div>
+        <div class="app-clock">@DateTime.Now.ToString("HH:mm:ss")</div>
+    </header>
+
+    @if (!string.IsNullOrEmpty(_lastAction) && (DateTime.Now - _lastActionTime).TotalSeconds < 6)
     {
-        <p class="last-action">Last action: @_lastAction</p>
+        <div class="toast @(_lastAction.StartsWith("ERROR") ? "error" : "")">@_lastAction</div>
     }
+
+    <section class="cycle-card">
+        <div class="cycle-head">
+            <h2>Light Cycle</h2>
+            @if (CycleService.CurrentPhase != null)
+            {
+                <div class="cycle-status">
+                    <span class="phase-badge @PhaseClass(CycleService.CurrentPhase.Name)">
+                        @PhaseIcon(CycleService.CurrentPhase.Name) @CycleService.CurrentPhase.Name
+                    </span>
+                    @if (CycleService.NextPhase is { } next)
+                    {
+                        <span class="cycle-next">
+                            @PhaseIcon(next.Name) @next.Name in <strong>@CountdownTo(next.Start)</strong> (@next.Start.ToString("HH:mm"))
+                        </span>
+                    }
+                    <button class="override-pill @(CycleService.OverrideActive ? "active" : "")"
+                            type="button"
+                            @onclick="ToggleOverride">
+                        <span class="pill-dot"></span>
+                        @(CycleService.OverrideActive ? "Override active" : "Auto")
+                    </button>
+                </div>
+            }
+            else
+            {
+                <p class="muted">No active cycle</p>
+            }
+        </div>
+
+        @if (CycleService.CycleConfig != null)
+        {
+            <div class="timeline">
+                <div class="timeline-track">
+                    @foreach (var seg in GetTimelineSegments())
+                    {
+                        <div class="timeline-seg @seg.Cls"
+                             style="left:@(Pct(seg.LeftPct));width:@(Pct(seg.WidthPct))"
+                             title="@seg.Label"></div>
+                    }
+                    <div class="timeline-now" style="left:@(Pct(NowPct()))"></div>
+                </div>
+                <div class="timeline-labels">
+                    <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
+                </div>
+            </div>
+
+            <button class="editor-toggle" type="button" @onclick="() => _showEditor = !_showEditor">
+                @(_showEditor ? "▴ Hide cycle editor" : "▾ Edit cycles")
+            </button>
+
+            @if (_showEditor)
+            {
+                <div class="cycle-editor">
+                    @foreach (var (phase, index) in CycleService.CycleConfig.Phases.Select((p, i) => (p, i)))
+                    {
+                        <div class="phase-editor @PhaseClass(phase.Name)">
+                            <h3>@PhaseIcon(phase.Name) @phase.Name</h3>
+                            <label class="field">
+                                <span>Start</span>
+                                <input type="time"
+                                       value="@phase.Start.ToString("HH:mm")"
+                                       @onchange="@(e => phase.Start = TimeOnly.Parse((string)e.Value!))" />
+                            </label>
+                            @foreach (var actor in phase.Actors)
+                            {
+                                <div class="actor-editor">
+                                    <span class="actor-name">@actor.ObjectId <small>@actor.Host</small></span>
+                                    <label class="field checkbox">
+                                        <input type="checkbox"
+                                               checked="@actor.On"
+                                               @onchange="@(e => actor.On = (bool)e.Value!)" />
+                                        <span>On</span>
+                                    </label>
+                                    @if (actor.Brightness.HasValue)
+                                    {
+                                        <label class="field slider">
+                                            <span>Brightness <strong>@((int)(actor.Brightness.Value * 100))%</strong></span>
+                                            <input type="range" min="1" max="100"
+                                                   value="@((int)(actor.Brightness.Value * 100))"
+                                                   @onchange="@(e => actor.Brightness = int.Parse((string)e.Value!) / 100f)" />
+                                        </label>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                    <button class="save-button" type="button" @onclick="SaveCycles">Save cycles</button>
+                </div>
+            }
+        }
+    </section>
 
     @if (!EspService.Devices.Any())
     {
         <div class="loading">
+            <div class="spinner"></div>
             <p>Connecting to ESP devices...</p>
         </div>
     }
     else
     {
-        @foreach (var device in EspService.Devices)
-        {
-            <div class="device-card">
-                <h2>@device.Host</h2>
+        <div class="device-grid">
+            @foreach (var device in EspService.Devices)
+            {
+                <section class="device-card @(device.IsConnected ? "" : "offline")">
+                    <div class="device-head">
+                        <span class="conn-dot @(device.IsConnected ? "online" : "")"></span>
+                        <h2>@device.Host</h2>
+                        <span class="conn-label">@(device.IsConnected ? "connected" : "offline")</span>
+                    </div>
 
-                @if (device.SwitchEntities.Any())
-                {
-                    <div class="entity-section">
-                        <h3>Switches</h3>
-                        <div class="entity-grid">
-                            @foreach (var switchEntity in device.SwitchEntities)
+                    @if (device.LightEntities.Any())
+                    {
+                        <div class="entity-section">
+                            <h3>Lights</h3>
+                            @foreach (var light in device.LightEntities)
                             {
                                 var currentDevice = device;
-                                var currentSwitch = switchEntity;
-                                <div class="entity-item switch @(switchEntity.GetValue() ? "on" : "off")">
-                                    <span class="entity-name">@switchEntity.Name</span>
-                                    <button class="switch-button"
-                                            type="button"
-                                            @onclick="@(async () => await ToggleSwitch(currentDevice, currentSwitch))"
-                                            disabled="@(device.Connection == null)">
-                                        @(switchEntity.GetValue() ? "ON" : "OFF")
-                                    </button>
-                                    @if (device.Connection == null)
+                                var currentLight = light;
+                                <div class="entity-card light @(light.GetValue() ? "on" : "")">
+                                    <div class="entity-head">
+                                        <span class="entity-icon">💡</span>
+                                        <span class="entity-name">@light.Name</span>
+                                        <button class="toggle-pill @(light.GetValue() ? "on" : "")"
+                                                type="button"
+                                                disabled="@(!device.IsConnected)"
+                                                @onclick="@(async () => await ToggleLight(currentDevice, currentLight))">
+                                            @(light.GetValue() ? "ON" : "OFF")
+                                        </button>
+                                    </div>
+                                    @if (light.SupportsBrightness)
                                     {
-                                        <span class="status-badge disconnected">Disconnected</span>
+                                        <div class="brightness-row">
+                                            <span class="brightness-value">@((int)(light.Brightness * 100))<small>%</small></span>
+                                            <input type="range" min="1" max="100"
+                                                   value="@((int)(light.Brightness * 100))"
+                                                   disabled="@(!device.IsConnected)"
+                                                   @onchange="@(async e => await SetBrightness(currentDevice, currentLight, int.Parse((string)e.Value!)))" />
+                                        </div>
                                     }
                                 </div>
                             }
                         </div>
-                    </div>
-                }
-            </div>
-        }
+                    }
+
+                    @if (device.SwitchEntities.Any())
+                    {
+                        <div class="entity-section">
+                            <h3>Switches</h3>
+                            @foreach (var switchEntity in device.SwitchEntities)
+                            {
+                                var currentDevice = device;
+                                var currentSwitch = switchEntity;
+                                <div class="entity-card @(switchEntity.GetValue() ? "on" : "")">
+                                    <div class="entity-head">
+                                        <span class="entity-icon">🔌</span>
+                                        <span class="entity-name">@switchEntity.Name</span>
+                                        <button class="toggle-pill @(switchEntity.GetValue() ? "on" : "")"
+                                                type="button"
+                                                disabled="@(!device.IsConnected)"
+                                                @onclick="@(async () => await ToggleSwitch(currentDevice, currentSwitch))">
+                                            @(switchEntity.GetValue() ? "ON" : "OFF")
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (device.SensorEntities.Any() || device.BinarySensorEntities.Any())
+                    {
+                        <div class="entity-section">
+                            <h3>Sensors</h3>
+                            <div class="sensor-grid">
+                                @foreach (var sensor in device.SensorEntities)
+                                {
+                                    <div class="sensor-tile">
+                                        <span class="sensor-value">@sensor.GetDisplayValue()</span>
+                                        <span class="sensor-name">@sensor.Name</span>
+                                    </div>
+                                }
+                                @foreach (var binarySensor in device.BinarySensorEntities)
+                                {
+                                    <div class="sensor-tile">
+                                        <span class="sensor-value">@binarySensor.GetDisplayValue()</span>
+                                        <span class="sensor-name">@binarySensor.Name</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </section>
+            }
+        </div>
     }
 </div>
 
 @code {
     private string _lastAction = "";
-    private bool _isConnected = false;
-
-    protected override void OnInitialized()
-    {
-        Console.WriteLine("=== InteractiveDashboard OnInitialized called ===");
-        Console.WriteLine($"Devices available: {EspService.Devices.Count}");
-    }
+    private DateTime _lastActionTime;
+    private bool _showEditor;
+    private System.Threading.Timer? _clock;
 
     protected override void OnAfterRender(bool firstRender)
     {
         if (firstRender)
         {
-            Console.WriteLine("=== InteractiveDashboard OnAfterRender (first render) ===");
-            Console.WriteLine($"Render mode info - IsInteractive: This component should be interactive");
-            _isConnected = true;
-            EspService.OnDevicesUpdated += OnDevicesUpdated;
-            Console.WriteLine("Event handler attached");
-            Console.WriteLine($"Component is ready for interaction");
-        }
-        else
-        {
-            Console.WriteLine($"OnAfterRender called (not first render)");
+            EspService.OnDevicesUpdated += OnUpdated;
+            CycleService.OnCycleChanged += OnUpdated;
+            _clock = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, 1000, 1000);
         }
     }
 
-    private void OnDevicesUpdated()
+    private void OnUpdated()
     {
-        Console.WriteLine("OnDevicesUpdated event triggered");
         InvokeAsync(StateHasChanged);
+    }
+
+    private record TimelineSegment(double LeftPct, double WidthPct, string Cls, string Label);
+
+    private IEnumerable<TimelineSegment> GetTimelineSegments()
+    {
+        var config = CycleService.CycleConfig;
+        if (config == null || config.Phases.Count == 0) yield break;
+
+        var sorted = config.Phases.OrderBy(p => p.Start).ToList();
+        for (var i = 0; i < sorted.Count; i++)
+        {
+            var startMin = sorted[i].Start.Hour * 60 + sorted[i].Start.Minute;
+            var nextStart = sorted[(i + 1) % sorted.Count].Start;
+            var endMin = nextStart.Hour * 60 + nextStart.Minute;
+            if (endMin <= startMin) endMin += 1440;
+
+            var cls = PhaseClass(sorted[i].Name);
+            var label = $"{sorted[i].Name}: {sorted[i].Start:HH\\:mm} - {nextStart:HH\\:mm}";
+
+            if (endMin <= 1440)
+            {
+                yield return new TimelineSegment(startMin / 14.4, (endMin - startMin) / 14.4, cls, label);
+            }
+            else
+            {
+                // Segment wraps past midnight: split in two
+                yield return new TimelineSegment(startMin / 14.4, (1440 - startMin) / 14.4, cls, label);
+                yield return new TimelineSegment(0, (endMin - 1440) / 14.4, cls, label);
+            }
+        }
+    }
+
+    private double NowPct()
+    {
+        var now = DateTime.Now;
+        return (now.Hour * 60 + now.Minute) / 14.4;
+    }
+
+    private static string Pct(double value) => $"{value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}%";
+
+    private string PhaseClass(string phaseName)
+    {
+        var config = CycleService.CycleConfig;
+        var index = config?.Phases.OrderBy(p => p.Start).ToList().FindIndex(p => p.Name == phaseName) ?? 0;
+        return $"phase-{Math.Max(index, 0) % 4}";
+    }
+
+    private static string PhaseIcon(string phaseName)
+    {
+        var name = phaseName.ToLowerInvariant();
+        if (name.Contains("high") || name.Contains("day")) return "🌞";
+        if (name.Contains("low") || name.Contains("night")) return "🌙";
+        return "⏱";
+    }
+
+    private static string CountdownTo(TimeOnly target)
+    {
+        var diff = target - TimeOnly.FromDateTime(DateTime.Now);
+        return diff.TotalHours >= 1
+            ? $"{(int)diff.TotalHours}h {diff.Minutes:D2}m"
+            : $"{diff.Minutes}m";
+    }
+
+    private void ShowAction(string message)
+    {
+        _lastAction = message;
+        _lastActionTime = DateTime.Now;
+    }
+
+    private async Task ToggleLight(EspBase device, LightEntity light)
+    {
+        var connection = device.Connection;
+        if (connection == null) return;
+
+        try
+        {
+            var newState = !light.GetValue();
+            // Manual interaction: suspend the cycle so the scheduler doesn't revert it
+            CycleService.ActivateOverride();
+            await light.SetStateAsync(connection, newState);
+            ShowAction($"Toggled {light.Name} to {(newState ? "ON" : "OFF")}");
+        }
+        catch (Exception ex)
+        {
+            ShowAction($"ERROR: {ex.Message}");
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SetBrightness(EspBase device, LightEntity light, int percent)
+    {
+        var connection = device.Connection;
+        if (connection == null) return;
+
+        try
+        {
+            CycleService.ActivateOverride();
+            await light.SetStateAsync(connection, true, percent / 100f);
+            ShowAction($"Set {light.Name} to {percent}%");
+        }
+        catch (Exception ex)
+        {
+            ShowAction($"ERROR: {ex.Message}");
+        }
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task ToggleSwitch(EspBase device, SwitchEntity switchEntity)
     {
+        var connection = device.Connection;
+        if (connection == null) return;
+
         try
         {
-            Console.WriteLine("========================================");
-            Console.WriteLine($"[BUTTON CLICKED] ToggleSwitch method called!");
-            Console.WriteLine($"  Thread ID: {System.Threading.Thread.CurrentThread.ManagedThreadId}");
-            Console.WriteLine($"  Device: {device?.Host ?? "NULL"}");
-            Console.WriteLine($"  Switch: {switchEntity?.Name ?? "NULL"}");
-            Console.WriteLine($"  Current State: {switchEntity?.GetValue()}");
-            Console.WriteLine($"  Connection Status: {(device?.Connection == null ? "NULL" : "CONNECTED")}");
-
-            _lastAction = $"Button clicked at {DateTime.Now:HH:mm:ss}";
-            await InvokeAsync(StateHasChanged);
-
-            if (device.Connection == null)
-            {
-                Console.WriteLine($"[ERROR] Cannot toggle switch - device {device.Host} is not connected");
-                _lastAction = "ERROR: Device not connected";
-                await InvokeAsync(StateHasChanged);
-                return;
-            }
             var newState = !switchEntity.GetValue();
-            Console.WriteLine($"[ACTION] Toggling switch {switchEntity.Name} on {device.Host} to {newState}");
-            _lastAction = $"Toggling {switchEntity.Name} to {newState}...";
-            await InvokeAsync(StateHasChanged);
-
-            await switchEntity.SetStateAsync(device.Connection, newState);
-            Console.WriteLine($"[SUCCESS] Command sent successfully");
-
-            await device.Sync();
-            Console.WriteLine($"[SUCCESS] State synced");
-
-            _lastAction = $"Successfully toggled {switchEntity.Name} to {newState}";
-            await InvokeAsync(StateHasChanged);
-            Console.WriteLine($"[COMPLETE] Successfully toggled switch {switchEntity.Name}");
+            CycleService.ActivateOverride();
+            await switchEntity.SetStateAsync(connection, newState);
+            ShowAction($"Toggled {switchEntity.Name} to {(newState ? "ON" : "OFF")}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[EXCEPTION at top level] Failed to toggle switch: {ex.GetType().Name}");
-            Console.WriteLine($"[EXCEPTION] Message: {ex.Message}");
-            Console.WriteLine($"[EXCEPTION] Stack: {ex.StackTrace}");
-            _lastAction = $"ERROR: {ex.Message}";
-            await InvokeAsync(StateHasChanged);
+            ShowAction($"ERROR: {ex.Message}");
         }
-        finally
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ToggleOverride()
+    {
+        if (CycleService.OverrideActive)
         {
-            Console.WriteLine("========================================");
+            await CycleService.DeactivateOverride();
+            ShowAction("Override deactivated - cycle resumed");
         }
+        else
+        {
+            CycleService.ActivateOverride();
+            ShowAction("Override activated until next phase change");
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SaveCycles()
+    {
+        if (CycleService.CycleConfig == null) return;
+
+        try
+        {
+            await CycleService.UpdateConfig(CycleService.CycleConfig);
+            ShowAction("Cycle configuration saved");
+        }
+        catch (Exception ex)
+        {
+            ShowAction($"ERROR saving cycles: {ex.Message}");
+        }
+
+        await InvokeAsync(StateHasChanged);
     }
 
     public void Dispose()
     {
-        Console.WriteLine("=== InteractiveDashboard Dispose called ===");
-        if (_isConnected)
-        {
-            EspService.OnDevicesUpdated -= OnDevicesUpdated;
-            Console.WriteLine("Event handler detached");
-        }
+        EspService.OnDevicesUpdated -= OnUpdated;
+        CycleService.OnCycleChanged -= OnUpdated;
+        _clock?.Dispose();
     }
 }

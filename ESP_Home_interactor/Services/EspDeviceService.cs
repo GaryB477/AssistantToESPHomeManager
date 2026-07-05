@@ -1,4 +1,3 @@
-using ESP_Home_Interactor.Config;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
@@ -6,7 +5,10 @@ using Microsoft.Extensions.Configuration;
 namespace ESP_Home_Interactor.Services;
 
 /// <summary>
-/// Background service that manages ESP device connections and state updates
+/// Background service that manages ESP device connections.
+/// Maintains one connection per configured device with automatic
+/// reconnect (exponential backoff). State updates arrive via the
+/// devices' read loops and are forwarded through OnDevicesUpdated.
 /// </summary>
 public class EspDeviceService : BackgroundService
 {
@@ -30,64 +32,77 @@ public class EspDeviceService : BackgroundService
 
         try
         {
-            // Load configuration
             var configPath = _configuration["EspConfigPath"] ??
                             "/Users/marc/git/private/HomePeter/ESP_Home_interactor/config.json";
             var espConfigs = await Config.Config.Read(configPath);
 
-            // Initialize devices
             _espDevices = espConfigs.ESPNode.Select(esp => new EspBase(esp)).ToList();
 
-            // Connect to all devices
             foreach (var esp in _espDevices)
             {
-                try
-                {
-                    _logger.LogInformation("Connecting to {Host}...", esp.Host);
-                    await esp.Init();
-                    await esp.Sync();
-                    _logger.LogInformation("Connected to {Host}", esp.Host);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to connect to {Host}", esp.Host);
-                }
+                esp.StateChanged += NotifyDevicesUpdated;
             }
 
-            OnDevicesUpdated?.Invoke();
-
-            // Periodic refresh loop - only update states, don't send commands
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                await Task.Delay(10000, stoppingToken); // Update every 10 seconds
-
-                foreach (var esp in _espDevices)
-                {
-                    // Only sync if connection is established
-                    if (esp.Connection == null)
-                    {
-                        // Try to reconnect once per minute
-                        continue;
-                    }
-
-                    try
-                    {
-                        await esp.Sync();
-                        _logger.LogDebug("Synced state from {Host}", esp.Host);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Failed to sync with {Host}", esp.Host);
-                    }
-                }
-
-                OnDevicesUpdated?.Invoke();
-            }
+            await Task.WhenAll(_espDevices.Select(esp => ManageDevice(esp, stoppingToken)));
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Normal shutdown
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "ESP Device Service error");
         }
+    }
+
+    /// <summary>
+    /// Connect to a device and keep it connected: on connection loss,
+    /// retry with exponential backoff (5s doubling up to 60s).
+    /// </summary>
+    private async Task ManageDevice(EspBase esp, CancellationToken stoppingToken)
+    {
+        var reconnectDelay = TimeSpan.FromSeconds(5);
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                _logger.LogInformation("Connecting to {Host}...", esp.Host);
+                await esp.Init();
+                _logger.LogInformation("Connected to {Host}", esp.Host);
+                reconnectDelay = TimeSpan.FromSeconds(5);
+                NotifyDevicesUpdated();
+
+                await esp.WaitForDisconnect(stoppingToken);
+                _logger.LogWarning("Disconnected from {Host}", esp.Host);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Connection to {Host} failed: {Message}", esp.Host, ex.Message);
+            }
+
+            NotifyDevicesUpdated();
+
+            try
+            {
+                await Task.Delay(reconnectDelay, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            reconnectDelay = TimeSpan.FromSeconds(Math.Min(reconnectDelay.TotalSeconds * 2, 60));
+        }
+    }
+
+    private void NotifyDevicesUpdated()
+    {
+        OnDevicesUpdated?.Invoke();
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
