@@ -62,6 +62,11 @@
             }
         </div>
 
+        @foreach (var warning in GetCycleWarnings())
+        {
+            <div class="cycle-warning">@IconAlert @warning</div>
+        }
+
         @if (CycleService.CycleConfig != null)
         {
             <div class="timeline">
@@ -88,22 +93,58 @@
                 <div class="cycle-editor">
                     @foreach (var (phase, index) in CycleService.CycleConfig.Phases.Select((p, i) => (p, i)))
                     {
+                        var currentPhase = phase;
                         <div class="phase-editor @PhaseClass(phase.Name)">
-                            <h3>@PhaseIcon(phase.Name) @phase.Name</h3>
+                            <div class="phase-editor-head">
+                                <h3>@PhaseIcon(phase.Name)</h3>
+                                <input class="phase-name" type="text"
+                                       value="@phase.Name"
+                                       @onchange="@(e => currentPhase.Name = (string)e.Value!)" />
+                                <button class="remove-button" type="button" title="Remove phase"
+                                        @onclick="() => CycleService.CycleConfig!.Phases.Remove(currentPhase)">✕</button>
+                            </div>
                             <label class="field">
                                 <span>Start</span>
                                 <input type="time"
                                        value="@phase.Start.ToString("HH:mm")"
-                                       @onchange="@(e => phase.Start = TimeOnly.Parse((string)e.Value!))" />
+                                       @onchange="@(e => currentPhase.Start = TimeOnly.Parse((string)e.Value!))" />
                             </label>
                             @foreach (var actor in phase.Actors)
                             {
+                                var currentActor = actor;
+                                var actorDevice = FindDevice(currentActor);
+                                var entities = actorDevice != null ? DeviceEntities(actorDevice) : new List<(string ObjectId, string Label)>();
                                 <div class="actor-editor">
-                                    <span class="actor-name">@actor.ObjectId <small>@actor.Host</small></span>
+                                    <div class="actor-ref">
+                                        <select class="ref-select" value="@currentActor.Node"
+                                                @onchange="@(e => OnActorNodeChanged(currentActor, (string)e.Value!))">
+                                            @foreach (var device in EspService.Devices)
+                                            {
+                                                <option value="@device.Name" selected="@(device.Name == currentActor.Node)">@device.Name</option>
+                                            }
+                                            @if (ActorMissing(currentActor))
+                                            {
+                                                <option value="@currentActor.Node" selected>@currentActor.Node — not configured</option>
+                                            }
+                                        </select>
+                                        <select class="ref-select" value="@currentActor.ObjectId"
+                                                @onchange="@(e => OnActorEntityChanged(currentActor, (string)e.Value!))">
+                                            @foreach (var entity in entities)
+                                            {
+                                                <option value="@entity.ObjectId" selected="@(entity.ObjectId == currentActor.ObjectId)">@entity.Label</option>
+                                            }
+                                            @if (entities.All(x => x.ObjectId != currentActor.ObjectId))
+                                            {
+                                                <option value="@currentActor.ObjectId" selected>@currentActor.ObjectId</option>
+                                            }
+                                        </select>
+                                        <button class="remove-button" type="button" title="Remove actor"
+                                                @onclick="() => currentPhase.Actors.Remove(currentActor)">✕</button>
+                                    </div>
                                     <label class="field checkbox">
                                         <input type="checkbox"
                                                checked="@actor.On"
-                                               @onchange="@(e => actor.On = (bool)e.Value!)" />
+                                               @onchange="@(e => currentActor.On = (bool)e.Value!)" />
                                         <span>On</span>
                                     </label>
                                     @if (actor.Brightness.HasValue)
@@ -112,25 +153,60 @@
                                             <span>Brightness <strong>@((int)(actor.Brightness.Value * 100))%</strong></span>
                                             <input type="range" min="1" max="100"
                                                    value="@((int)(actor.Brightness.Value * 100))"
-                                                   @onchange="@(e => actor.Brightness = int.Parse((string)e.Value!) / 100f)" />
+                                                   @onchange="@(e => currentActor.Brightness = int.Parse((string)e.Value!) / 100f)" />
                                         </label>
                                     }
                                 </div>
                             }
                             @foreach (var fan in phase.AcFans)
                             {
+                                var currentFan = fan;
+                                var fanController = AcService.Controllers.FirstOrDefault(c => c.Name == currentFan.Controller);
                                 <div class="actor-editor">
-                                    <span class="actor-name">@IconFan @FanPortName(fan) <small>@fan.Controller · Port @fan.Port</small></span>
+                                    <div class="actor-ref">
+                                        <select class="ref-select" value="@currentFan.Controller"
+                                                @onchange="@(e => OnFanControllerChanged(currentFan, (string)e.Value!))">
+                                            @foreach (var controller in AcService.Controllers)
+                                            {
+                                                <option value="@controller.Name" selected="@(controller.Name == currentFan.Controller)">@controller.Name</option>
+                                            }
+                                            @if (FanMissing(currentFan))
+                                            {
+                                                <option value="@currentFan.Controller" selected>@currentFan.Controller — not configured</option>
+                                            }
+                                        </select>
+                                        <select class="ref-select" value="@currentFan.Port"
+                                                @onchange="@(e => currentFan.Port = int.Parse((string)e.Value!))">
+                                            @if (fanController != null)
+                                            {
+                                                @foreach (var port in fanController.Ports)
+                                                {
+                                                    <option value="@port.Port" selected="@(port.Port == currentFan.Port)">@port.Name (port @port.Port)</option>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <option value="@currentFan.Port" selected>port @currentFan.Port</option>
+                                            }
+                                        </select>
+                                        <button class="remove-button" type="button" title="Remove fan"
+                                                @onclick="() => currentPhase.AcFans.Remove(currentFan)">✕</button>
+                                    </div>
                                     <label class="field slider">
                                         <span>Level <strong>@fan.Level/10</strong></span>
                                         <input type="range" min="0" max="10"
                                                value="@fan.Level"
-                                               @onchange="@(e => fan.Level = int.Parse((string)e.Value!))" />
+                                               @onchange="@(e => currentFan.Level = int.Parse((string)e.Value!))" />
                                     </label>
                                 </div>
                             }
+                            <div class="editor-add-row">
+                                <button class="add-button" type="button" @onclick="() => AddActor(currentPhase)">+ Actor</button>
+                                <button class="add-button" type="button" @onclick="() => AddFan(currentPhase)">+ Fan</button>
+                            </div>
                         </div>
                     }
+                    <button class="add-button add-phase" type="button" @onclick="AddPhase">+ Add phase</button>
                     <button class="save-button" type="button" @onclick="SaveCycles">Save cycles</button>
                 </div>
             }
@@ -266,7 +342,10 @@
                 <section class="device-card @(device.IsConnected ? "" : "offline")">
                     <div class="device-head">
                         <span class="conn-dot @(device.IsConnected ? "online" : "")"></span>
-                        <h2>@device.Host</h2>
+                        <h2>@device.Name @if (device.Name != device.Host)
+                                         {
+                                             <small>@device.Host</small>
+                                         }</h2>
                         <span class="conn-label">@(device.IsConnected ? "connected" : "offline")</span>
                     </div>
 
@@ -511,12 +590,111 @@
 
     private static string Fmt(double value) => value.ToString("F1", CultureInfo.InvariantCulture);
 
-    private string FanPortName(AcFanState fan)
+    /// <summary>
+    /// Cycle entries pointing at hosts/controllers that are not in the config
+    /// can never be enforced - surface that in the UI instead of only logging.
+    /// </summary>
+    private List<string> GetCycleWarnings()
     {
-        var port = AcService.Controllers
-            .FirstOrDefault(c => c.Name == fan.Controller)?
-            .Ports.FirstOrDefault(p => p.Port == fan.Port);
-        return port?.Name ?? $"Port {fan.Port}";
+        var warnings = new List<string>();
+        var config = CycleService.CycleConfig;
+        if (config == null) return warnings;
+
+        // During startup nothing is loaded yet - suppress the false alarm
+        if (!EspService.Devices.Any() && !AcService.Controllers.Any()) return warnings;
+
+        foreach (var phase in config.Phases)
+        {
+            foreach (var actor in phase.Actors.Where(ActorMissing))
+                warnings.Add($"{actor.ObjectId} → {actor.Node}: node not configured — the cycle cannot control this actor");
+            foreach (var fan in phase.AcFans.Where(FanMissing))
+                warnings.Add($"{fan.Controller} · port {fan.Port}: controller not configured — the cycle cannot control this fan");
+        }
+
+        return warnings.Distinct().ToList();
+    }
+
+    private bool ActorMissing(ActorState actor) =>
+        EspService.Devices.All(d => d.Name != actor.Node && d.Host != actor.Node);
+
+    private bool FanMissing(AcFanState fan) =>
+        AcService.Controllers.All(c => c.Name != fan.Controller);
+
+    private EspBase? FindDevice(ActorState actor) =>
+        EspService.Devices.FirstOrDefault(d => d.Name == actor.Node || d.Host == actor.Node);
+
+    private static List<(string ObjectId, string Label)> DeviceEntities(EspBase device) =>
+        device.LightEntities.Select(l => (l.ObjectId, $"{l.Name} · light"))
+            .Concat(device.SwitchEntities.Select(s => (s.ObjectId, $"{s.Name} · switch")))
+            .ToList();
+
+    private void OnActorNodeChanged(ActorState actor, string nodeName)
+    {
+        actor.Node = nodeName;
+        var device = FindDevice(actor);
+        var entities = device != null ? DeviceEntities(device) : new List<(string ObjectId, string Label)>();
+        if (entities.Count > 0 && entities.All(e => e.ObjectId != actor.ObjectId))
+            actor.ObjectId = entities[0].ObjectId;
+        SyncBrightness(actor);
+    }
+
+    private void OnActorEntityChanged(ActorState actor, string objectId)
+    {
+        actor.ObjectId = objectId;
+        SyncBrightness(actor);
+    }
+
+    /// <summary>Brightness only makes sense on dimmable lights - add/remove it with the entity type</summary>
+    private void SyncBrightness(ActorState actor)
+    {
+        var light = FindDevice(actor)?.LightEntities.FirstOrDefault(l => l.ObjectId == actor.ObjectId);
+        actor.Brightness = light is { SupportsBrightness: true } ? actor.Brightness ?? 1f : null;
+    }
+
+    private void OnFanControllerChanged(AcFanState fan, string controllerName)
+    {
+        fan.Controller = controllerName;
+        var controller = AcService.Controllers.FirstOrDefault(c => c.Name == controllerName);
+        if (controller != null && controller.Ports.All(p => p.Port != fan.Port) && controller.Ports.Count > 0)
+            fan.Port = controller.Ports[0].Port;
+    }
+
+    private void AddActor(CyclePhase phase)
+    {
+        var device = EspService.Devices.FirstOrDefault(d => d.LightEntities.Any() || d.SwitchEntities.Any());
+        if (device == null)
+        {
+            ShowAction("ERROR: no device with controllable entities found");
+            return;
+        }
+
+        var actor = new ActorState { Node = device.Name, ObjectId = DeviceEntities(device)[0].ObjectId, On = false };
+        SyncBrightness(actor);
+        phase.Actors.Add(actor);
+    }
+
+    private void AddFan(CyclePhase phase)
+    {
+        var controller = AcService.Controllers.FirstOrDefault(c => c.Ports.Count > 0);
+        if (controller == null)
+        {
+            ShowAction("ERROR: no AC Infinity controller with ports configured");
+            return;
+        }
+
+        phase.AcFans.Add(new AcFanState { Controller = controller.Name, Port = controller.Ports[0].Port, Level = 0 });
+    }
+
+    private void AddPhase()
+    {
+        var config = CycleService.CycleConfig;
+        if (config == null) return;
+        config.Phases.Add(new CyclePhase
+        {
+            Name = $"Phase {config.Phases.Count + 1}",
+            Start = new TimeOnly(12, 0),
+            Actors = new List<ActorState>()
+        });
     }
 
     private static MarkupString PhaseIcon(string phaseName)
@@ -561,6 +739,10 @@
     private static readonly MarkupString IconPlug = Icon(
         "<path d=\"M12 22v-5\"/><path d=\"M9 8V2\"/><path d=\"M15 8V2\"/>" +
         "<path d=\"M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z\"/>");
+
+    private static readonly MarkupString IconAlert = Icon(
+        "<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 20h16a2 2 0 0 0 1.73-2Z\"/>" +
+        "<path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>");
 
     private static readonly MarkupString IconGear = Icon(
         "<path d=\"M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 " +

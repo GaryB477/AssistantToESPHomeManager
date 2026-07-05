@@ -163,17 +163,18 @@ public class CycleSchedulerService : BackgroundService
     {
         foreach (var actor in phase.Actors)
         {
-            var device = _espService.Devices.FirstOrDefault(d => d.Host == actor.Host);
+            // Match by configured name; legacy cycle files still hold a host/IP
+            var device = _espService.Devices.FirstOrDefault(d => d.Name == actor.Node || d.Host == actor.Node);
             if (device == null)
             {
-                _logger.LogWarning("Actor {ObjectId}: device {Host} not configured", actor.ObjectId, actor.Host);
+                _logger.LogWarning("Actor {ObjectId}: node {Node} not configured", actor.ObjectId, actor.Node);
                 continue;
             }
 
             var connection = device.Connection;
             if (connection == null)
             {
-                _logger.LogWarning("Actor {ObjectId}: device {Host} is disconnected", actor.ObjectId, actor.Host);
+                _logger.LogWarning("Actor {ObjectId}: node {Node} is disconnected", actor.ObjectId, actor.Node);
                 continue;
             }
 
@@ -205,12 +206,12 @@ public class CycleSchedulerService : BackgroundService
                     continue;
                 }
 
-                _logger.LogWarning("Actor {ObjectId} not found on device {Host}", actor.ObjectId, actor.Host);
+                _logger.LogWarning("Actor {ObjectId} not found on node {Node}", actor.ObjectId, actor.Node);
             }
             catch (Exception ex)
             {
-                _logger.LogError("Failed to set actor {ObjectId} on {Host}: {Message}",
-                    actor.ObjectId, actor.Host, ex.Message);
+                _logger.LogError("Failed to set actor {ObjectId} on {Node}: {Message}",
+                    actor.ObjectId, actor.Node, ex.Message);
             }
         }
 

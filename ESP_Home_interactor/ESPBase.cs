@@ -29,6 +29,9 @@ public class EspBase(ESPConfig config)
 
     public int Port { get; set; } = config.Port;
     public string Host { get; set; } = config.Host;
+
+    /// <summary>Reference name for cycles and display; falls back to the host</summary>
+    public string Name { get; } = string.IsNullOrWhiteSpace(config.Name) ? config.Host : config.Name;
     public ESPHomeConnection? Connection { get; private set; }
     public bool IsConnected => Connection != null;
 

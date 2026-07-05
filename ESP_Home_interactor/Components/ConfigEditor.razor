@@ -26,6 +26,7 @@
             {
                 var currentNode = node;
                 <div class="settings-row">
+                    <label class="sfield"><span>Name</span><input type="text" @bind="currentNode.Name"/></label>
                     <label class="sfield"><span>Host</span><input type="text" @bind="currentNode.Host"/></label>
                     <label class="sfield tiny"><span>Port</span><input type="text" @bind="currentNode.Port"/></label>
                     <label class="sfield"><span>Password</span><input type="password" @bind="currentNode.Password"/></label>
@@ -90,6 +91,7 @@
 
     private sealed class NodeEdit
     {
+        public string Name { get; set; } = "";
         public string Host { get; set; } = "";
         public string Port { get; set; } = "6053";
         public string Password { get; set; } = "";
@@ -118,6 +120,7 @@
 
             _nodes = config.ESPNode.Select(n => new NodeEdit
             {
+                Name = n.Name ?? "",
                 Host = n.Host,
                 Port = n.Port.ToString(),
                 Password = n.Password ?? ""
@@ -141,6 +144,12 @@
     private string? Validate()
     {
         if (_nodes.Count == 0) return "At least one ESP node is required";
+
+        var names = _nodes.Select(n => n.Name.Trim()).ToList();
+        if (names.Any(string.IsNullOrWhiteSpace))
+            return "Every ESP node needs a name - cycles reference nodes by it";
+        if (names.Distinct(StringComparer.OrdinalIgnoreCase).Count() != names.Count)
+            return "ESP node names must be unique";
 
         foreach (var node in _nodes)
         {
@@ -184,6 +193,7 @@
         {
             ESPNode = _nodes.Select(n => new ESPConfig
             {
+                Name = n.Name.Trim(),
                 Host = n.Host.Trim(),
                 Port = int.Parse(n.Port),
                 Password = string.IsNullOrWhiteSpace(n.Password) ? null : n.Password

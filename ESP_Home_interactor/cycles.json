@@ -5,7 +5,7 @@
       "Start": "04:00:00",
       "Actors": [
         {
-          "Host": "192.168.0.15",
+          "Node": "sunlight",
           "ObjectId": "main_light",
           "On": true,
           "Brightness": 0.5
@@ -29,7 +29,7 @@
       "Start": "16:00:00",
       "Actors": [
         {
-          "Host": "192.168.0.15",
+          "Node": "sunlight",
           "ObjectId": "main_light",
           "On": false,
           "Brightness": null

@@ -13,7 +13,8 @@ public class LightCycleConfig
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         WriteIndented = true,
-        ReadCommentHandling = JsonCommentHandling.Skip
+        ReadCommentHandling = JsonCommentHandling.Skip,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
     public required List<CyclePhase> Phases { get; set; }
@@ -59,16 +60,31 @@ public class CyclePhase
 
 /// <summary>
 /// Target state of one actor (light or switch) during a phase.
-/// Matched via device host + entity object id.
+/// Matched via node name + entity object id.
 /// </summary>
 public class ActorState
 {
-    public required string Host { get; set; }
+    /// <summary>Name of the ESP node as configured in config.json (legacy files may hold a host/IP)</summary>
+    public string Node { get; set; } = "";
+
     public required string ObjectId { get; set; }
     public required bool On { get; set; }
 
     /// <summary>Brightness 0.0 - 1.0, lights only</summary>
     public float? Brightness { get; set; }
+
+    /// <summary>Legacy field: old cycle files referenced the node by host/IP.
+    /// Read-only mapping onto Node; never written back.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Host
+    {
+        get => null;
+        set
+        {
+            if (string.IsNullOrEmpty(Node) && value != null) Node = value;
+        }
+    }
 }
 
 /// <summary>
