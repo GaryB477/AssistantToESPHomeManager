@@ -73,14 +73,53 @@ public class CycleSchedulerService : BackgroundService
         await Tick();
     }
 
+    /// <summary>
+    /// Select the active growth stage; the previous selection is closed
+    /// off into the stage history.
+    /// A null stage is a full reset for a new grow: it pauses enforcement
+    /// and wipes the accumulated stage history.
+    /// </summary>
+    public async Task SelectStage(string? stage)
+    {
+        var config = CycleConfig;
+        if (config == null || config.ActiveStage == stage) return;
+
+        var now = DateTime.Now;
+        if (stage == null)
+        {
+            config.StageHistory.Clear();
+            _logger.LogInformation("Growth stages reset - stage history cleared");
+        }
+        else if (config.ActiveStage != null && config.ActiveSince != null)
+        {
+            config.StageHistory.Add(new StageHistoryEntry
+            {
+                Stage = config.ActiveStage,
+                From = config.ActiveSince.Value,
+                To = now
+            });
+            _logger.LogInformation("Growth stage changed to {Stage}", stage);
+        }
+        else
+        {
+            _logger.LogInformation("Growth stage changed to {Stage}", stage);
+        }
+
+        config.ActiveStage = stage;
+        config.ActiveSince = stage != null ? now : null;
+        await UpdateConfig(config);
+        OnCycleChanged?.Invoke();
+    }
+
     /// <summary>Start time of the next phase change, for display purposes</summary>
     public (string Name, TimeOnly Start)? NextPhase
     {
         get
         {
-            if (CycleConfig == null || CycleConfig.Phases.Count == 0) return null;
+            var phases = CycleConfig?.ActivePhases;
+            if (phases == null || phases.Count == 0) return null;
             var now = TimeOnly.FromDateTime(DateTime.Now);
-            var sorted = CycleConfig.Phases.OrderBy(p => p.Start).ToList();
+            var sorted = phases.OrderBy(p => p.Start).ToList();
             var next = sorted.FirstOrDefault(p => p.Start > now) ?? sorted[0];
             return (next.Name, next.Start);
         }
@@ -138,9 +177,22 @@ public class CycleSchedulerService : BackgroundService
 
     private async Task Tick()
     {
-        if (CycleConfig == null || CycleConfig.Phases.Count == 0) return;
+        if (CycleConfig == null) return;
 
         var activePhase = CycleConfig.GetActivePhase(TimeOnly.FromDateTime(DateTime.Now));
+
+        // No growth stage selected (or its preset is empty): enforce nothing
+        if (activePhase == null)
+        {
+            if (CurrentPhase != null)
+            {
+                _logger.LogInformation("No active growth stage - cycle enforcement paused");
+                CurrentPhase = null;
+                OnCycleChanged?.Invoke();
+            }
+
+            return;
+        }
 
         if (CurrentPhase?.Name != activePhase.Name)
         {

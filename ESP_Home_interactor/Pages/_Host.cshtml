@@ -12,7 +12,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>HomePeter 🌱</title>
     <base href="~/" />
-    <link href="css/site.css" rel="stylesheet" />
+    @* asp-append-version adds a content-hash query so browsers never serve a stale stylesheet after a deploy *@
+    <link href="css/site.css" rel="stylesheet" asp-append-version="true" />
 </head>
 <body>
     <component type="typeof(ESP_Home_Interactor.Components.InteractiveDashboard)" render-mode="ServerPrerendered" />

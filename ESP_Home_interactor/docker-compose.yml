@@ -8,6 +8,8 @@ services:
     ports:
       - "5010:5010"
     environment:
+      # Local time for cycle switching; handles summer/winter time automatically
+      - TZ=Europe/Zurich
       # Plain "Urls" (not ASPNETCORE_URLS): it must override the localhost
       # value in appsettings.json, which host-level env vars do not
       - Urls=http://0.0.0.0:5010

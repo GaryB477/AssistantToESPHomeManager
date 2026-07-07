@@ -1,5 +1,203 @@
 {
-  "Phases": [
+  "Presets": {
+    "Seedling": [
+      {
+        "Name": "High",
+        "Start": "00:00:00",
+        "Actors": [
+          {
+            "Node": "sunlight",
+            "ObjectId": "main_light",
+            "On": true,
+            "Brightness": 0.5
+          }
+        ],
+        "AcFans": [
+          {
+            "Controller": "Controller 69",
+            "Port": 2,
+            "Level": 1
+          },
+          {
+            "Controller": "Controller 69",
+            "Port": 3,
+            "Level": 0
+          }
+        ]
+      },
+      {
+        "Name": "Low",
+        "Start": "20:00:00",
+        "Actors": [
+          {
+            "Node": "sunlight",
+            "ObjectId": "main_light",
+            "On": false
+          }
+        ],
+        "AcFans": [
+          {
+            "Controller": "Controller 69",
+            "Port": 2,
+            "Level": 0
+          },
+          {
+            "Controller": "Controller 69",
+            "Port": 3,
+            "Level": 0
+          }
+        ]
+      }
+    ],
+    "Vegetative": [
+      {
+        "Name": "High",
+        "Start": "04:00:00",
+        "Actors": [
+          {
+            "Node": "sunlight",
+            "ObjectId": "main_light",
+            "On": true,
+            "Brightness": 0.55
+          }
+        ],
+        "AcFans": [
+          {
+            "Controller": "Controller 69",
+            "Port": 2,
+            "Level": 2
+          },
+          {
+            "Controller": "Controller 69",
+            "Port": 3,
+            "Level": 2
+          }
+        ]
+      },
+      {
+        "Name": "Low",
+        "Start": "16:00:00",
+        "Actors": [
+          {
+            "Node": "sunlight",
+            "ObjectId": "main_light",
+            "On": false
+          }
+        ],
+        "AcFans": [
+          {
+            "Controller": "Controller 69",
+            "Port": 2,
+            "Level": 1
+          },
+          {
+            "Controller": "Controller 69",
+            "Port": 3,
+            "Level": 0
+          }
+        ]
+      }
+    ],
+    "Bloom": [
+      {
+        "Name": "High",
+        "Start": "04:00:00",
+        "Actors": [
+          {
+            "Node": "sunlight",
+            "ObjectId": "main_light",
+            "On": true,
+            "Brightness": 0.6
+          }
+        ],
+        "AcFans": [
+          {
+            "Controller": "Controller 69",
+            "Port": 2,
+            "Level": 2
+          },
+          {
+            "Controller": "Controller 69",
+            "Port": 3,
+            "Level": 2
+          }
+        ]
+      },
+      {
+        "Name": "Low",
+        "Start": "16:00:00",
+        "Actors": [
+          {
+            "Node": "sunlight",
+            "ObjectId": "main_light",
+            "On": false
+          }
+        ],
+        "AcFans": [
+          {
+            "Controller": "Controller 69",
+            "Port": 2,
+            "Level": 1
+          },
+          {
+            "Controller": "Controller 69",
+            "Port": 3,
+            "Level": 0
+          }
+        ]
+      }
+    ]
+  },
+  "ActiveStage": "Vegetative",
+  "ActiveSince": "2026-07-07T19:10:04.189137+02:00",
+  "StageHistory": [
+    {
+      "Stage": "Seedling",
+      "From": "2026-07-07T18:42:44.778566+02:00",
+      "To": "2026-07-07T18:42:53.516639+02:00"
+    },
+    {
+      "Stage": "Vegetative",
+      "From": "2026-07-07T18:42:53.516639+02:00",
+      "To": "2026-07-07T18:42:53.987682+02:00"
+    },
+    {
+      "Stage": "Seedling",
+      "From": "2026-07-07T18:42:53.987682+02:00",
+      "To": "2026-07-07T18:42:56.686463+02:00"
+    },
+    {
+      "Stage": "Vegetative",
+      "From": "2026-07-07T18:42:56.686463+02:00",
+      "To": "2026-07-07T18:42:58.269531+02:00"
+    },
+    {
+      "Stage": "Seedling",
+      "From": "2026-07-07T18:42:58.269531+02:00",
+      "To": "2026-07-07T18:42:58.869668+02:00"
+    },
+    {
+      "Stage": "Vegetative",
+      "From": "2026-07-07T18:42:58.869668+02:00",
+      "To": "2026-07-07T18:42:59.744383+02:00"
+    },
+    {
+      "Stage": "Bloom",
+      "From": "2026-07-07T18:42:59.744383+02:00",
+      "To": "2026-07-07T18:43:00.165167+02:00"
+    },
+    {
+      "Stage": "Vegetative",
+      "From": "2026-07-07T18:43:00.165167+02:00",
+      "To": "2026-07-07T18:43:00.507565+02:00"
+    },
+    {
+      "Stage": "Seedling",
+      "From": "2026-07-07T18:43:00.507565+02:00",
+      "To": "2026-07-07T19:10:04.189137+02:00"
+    }
+  ],
+  "ActivePhases": [
     {
       "Name": "High",
       "Start": "04:00:00",
@@ -8,19 +206,19 @@
           "Node": "sunlight",
           "ObjectId": "main_light",
           "On": true,
-          "Brightness": 0.5
+          "Brightness": 0.55
         }
       ],
       "AcFans": [
         {
           "Controller": "Controller 69",
           "Port": 2,
-          "Level": 5
+          "Level": 2
         },
         {
           "Controller": "Controller 69",
           "Port": 3,
-          "Level": 5
+          "Level": 2
         }
       ]
     },
@@ -31,15 +229,14 @@
         {
           "Node": "sunlight",
           "ObjectId": "main_light",
-          "On": false,
-          "Brightness": null
+          "On": false
         }
       ],
       "AcFans": [
         {
           "Controller": "Controller 69",
           "Port": 2,
-          "Level": 0
+          "Level": 1
         },
         {
           "Controller": "Controller 69",

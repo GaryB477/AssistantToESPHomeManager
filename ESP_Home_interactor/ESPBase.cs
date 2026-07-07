@@ -35,6 +35,10 @@ public class EspBase(ESPConfig config)
     public ESPHomeConnection? Connection { get; private set; }
     public bool IsConnected => Connection != null;
 
+    /// <summary>True once the full handshake (hello, auth, entities, subscribe)
+    /// is done - only then may other clients send requests over this connection</summary>
+    public bool IsReady { get; private set; }
+
     public List<SensorEntity> SensorEntities { get; private set; } = new List<SensorEntity>();
     public List<BinarySensorEntity> BinarySensorEntities { get; private set; } = new List<BinarySensorEntity>();
     public List<SwitchEntity> SwitchEntities { get; private set; } = new List<SwitchEntity>();
@@ -63,6 +67,7 @@ public class EspBase(ESPConfig config)
         {
             await FetchAllEntities();
             await SubscribeStates();
+            IsReady = true;
         }
         catch
         {
@@ -141,6 +146,7 @@ public class EspBase(ESPConfig config)
         finally
         {
             Connection = null;
+            IsReady = false;
             _entitiesDone?.TrySetException(new EndOfStreamException($"[{Host}] Connection closed"));
             _disconnected.TrySetResult(true);
         }

@@ -62,12 +62,38 @@
             }
         </div>
 
+        @if (CycleService.CycleConfig is { } stageConfig)
+        {
+            <div class="stage-bar">
+                <div class="stage-buttons">
+                    @foreach (var stage in LightCycleConfig.Stages)
+                    {
+                        var currentStage = stage;
+                        <button class="stage-button @(stageConfig.ActiveStage == stage ? "active" : "")"
+                                type="button"
+                                @onclick="() => SelectStage(currentStage)">
+                            @StageIcon(stage) @stage
+                        </button>
+                    }
+                </div>
+                @if (stageConfig is { ActiveStage: not null, ActiveSince: not null })
+                {
+                    <span class="stage-since">
+                        since @stageConfig.ActiveSince.Value.ToString("d.M.yyyy HH:mm")
+                        · <strong>@FormatDuration(DateTime.Now - stageConfig.ActiveSince.Value)</strong>
+                    </span>
+                    <button class="stage-reset" type="button" title="Reset stage selection"
+                            @onclick="ResetStage">Reset</button>
+                }
+            </div>
+        }
+
         @foreach (var warning in GetCycleWarnings())
         {
             <div class="cycle-warning">@IconAlert @warning</div>
         }
 
-        @if (CycleService.CycleConfig != null)
+        @if (CycleService.CycleConfig != null && CycleService.CycleConfig.ActivePhases.Count > 0)
         {
             <div class="timeline">
                 <div class="timeline-track">
@@ -83,7 +109,10 @@
                     <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
                 </div>
             </div>
+        }
 
+        @if (CycleService.CycleConfig is { } cycleConfig)
+        {
             <button class="editor-toggle" type="button" @onclick="() => _showEditor = !_showEditor">
                 @(_showEditor ? "▴ Hide cycle editor" : "▾ Edit cycles")
             </button>
@@ -91,7 +120,21 @@
             @if (_showEditor)
             {
                 <div class="cycle-editor">
-                    @foreach (var (phase, index) in CycleService.CycleConfig.Phases.Select((p, i) => (p, i)))
+                    <div class="stage-tabs">
+                        @foreach (var stage in LightCycleConfig.Stages)
+                        {
+                            var currentStage = stage;
+                            <button class="stage-tab @(EditorStage == stage ? "active" : "")" type="button"
+                                    @onclick="() => _editorStage = currentStage">
+                                @stage
+                                @if (cycleConfig.ActiveStage == stage)
+                                {
+                                    <span class="stage-tab-dot"></span>
+                                }
+                            </button>
+                        }
+                    </div>
+                    @foreach (var (phase, index) in EditorPhases.Select((p, i) => (p, i)))
                     {
                         var currentPhase = phase;
                         <div class="phase-editor @PhaseClass(phase.Name)">
@@ -101,7 +144,7 @@
                                        value="@phase.Name"
                                        @onchange="@(e => currentPhase.Name = (string)e.Value!)" />
                                 <button class="remove-button" type="button" title="Remove phase"
-                                        @onclick="() => CycleService.CycleConfig!.Phases.Remove(currentPhase)">✕</button>
+                                        @onclick="() => EditorPhases.Remove(currentPhase)">✕</button>
                             </div>
                             <label class="field">
                                 <span>Start</span>
@@ -215,55 +258,85 @@
 
     @foreach (var controller in AcService.Controllers)
     {
-        var charts = BuildCharts(controller);
+        var chart = BuildCombinedChart(controller);
 
         <section class="cycle-card">
             <div class="cycle-head">
-                <h2>History · @controller.Name · 24h</h2>
+                <h2>History · @controller.Name</h2>
             </div>
-            @if (charts == null)
+            @if (chart == null)
             {
                 <p class="chart-empty">Collecting data — charts appear after a few minutes</p>
             }
             else
             {
-            <div class="chart-grid">
-                @foreach (var chart in charts)
-                {
-                    <div class="chart">
-                        <div class="chart-head">
-                            <span class="chart-title">@chart.Title</span>
-                            <span class="chart-minmax">min @Fmt(chart.Min)@chart.Unit · max @Fmt(chart.Max)@chart.Unit</span>
-                        </div>
-                        <svg class="chart-plot" viewBox="0 0 600 110">
-                            @for (var i = 1; i <= 3; i++)
-                            {
-                                var gy = Fmt(8 + (86 - 8) * i / 4.0);
-                                <line class="grid" x1="6" x2="594" y1="@gy" y2="@gy"/>
-                            }
-                            <line class="grid" x1="6" x2="594" y1="86" y2="86"/>
-                            <path class="series" d="@chart.LinePath"/>
-                            @foreach (var p in chart.Points.Where(p => p.Isolated))
-                            {
-                                <circle class="series-dot" cx="@Fmt(p.X)" cy="@Fmt(p.Y)" r="2"/>
-                            }
-                            @foreach (var p in chart.Points)
-                            {
-                                <g class="hpt">
-                                    <rect x="@Fmt(p.X - 1.25)" y="0" width="2.5" height="110" fill="transparent"/>
-                                    <line x1="@Fmt(p.X)" x2="@Fmt(p.X)" y1="8" y2="86"/>
-                                    <circle cx="@Fmt(p.X)" cy="@Fmt(p.Y)" r="3"/>
-                                    <text x="@Fmt(Math.Clamp(p.X, 50, 550))" y="104" text-anchor="middle">@p.Tip</text>
-                                </g>
-                            }
-                        </svg>
-                        <div class="chart-x">
-                            <span>@DateTime.Now.AddHours(-24).ToString("HH:mm")</span>
-                            <span>@DateTime.Now.ToString("HH:mm")</span>
+                <div class="chart">
+                    <div class="chart-head">
+                        <span class="chart-legend">
+                            <span class="legend-swatch temp"></span> Temperature
+                            <span class="chart-minmax">min @Fmt(chart.TempMin) · max @Fmt(chart.TempMax) °C</span>
+                        </span>
+                        @if (chart.VpdPath != null)
+                        {
+                            <span class="chart-legend">
+                                <span class="legend-swatch vpd"></span> VPD
+                                <span class="chart-minmax">min @F2(chart.VpdMin) · max @F2(chart.VpdMax) kPa</span>
+                            </span>
+                        }
+                    </div>
+                    @* direction:rtl on the scroll container anchors the initial scroll
+                       position at the right edge (= now) without any JS *@
+                    <div class="chart-scroll">
+                        <div class="chart-inner" style="width:@Pct(chart.WidthPct)">
+                            <svg class="chart-plot" viewBox="0 0 @Fmt(chart.ViewWidth) 130">
+                                @foreach (var band in chart.LightBands)
+                                {
+                                    <rect class="light-band" x="@Fmt(band.X)" y="8" width="@Fmt(band.Width)" height="78"
+                                          style="fill-opacity:@band.Opacity.ToString("F2", CultureInfo.InvariantCulture)"/>
+                                }
+                                @for (var i = 1; i <= 3; i++)
+                                {
+                                    var gy = Fmt(8 + (86 - 8) * i / 4.0);
+                                    <line class="grid" x1="6" x2="@Fmt(chart.ViewWidth - 6)" y1="@gy" y2="@gy"/>
+                                }
+                                <line class="grid" x1="6" x2="@Fmt(chart.ViewWidth - 6)" y1="86" y2="86"/>
+                                @foreach (var label in chart.TimeLabels)
+                                {
+                                    @* The <g> wrapper keeps Razor from parsing <text> as its transition tag *@
+                                    <g>
+                                        <line class="grid" x1="@Fmt(label.X)" x2="@Fmt(label.X)" y1="8" y2="86"/>
+                                        <text class="tlabel" x="@Fmt(label.X)" y="101" text-anchor="middle">@label.Label</text>
+                                    </g>
+                                }
+                                <path class="series temp" d="@chart.TempPath"/>
+                                @if (chart.VpdPath != null)
+                                {
+                                    <path class="series vpd" d="@chart.VpdPath"/>
+                                }
+                                @foreach (var dot in chart.Dots)
+                                {
+                                    <circle class="series-dot @dot.Cls" cx="@Fmt(dot.X)" cy="@Fmt(dot.Y)" r="2"/>
+                                }
+                                @foreach (var p in chart.Points)
+                                {
+                                    <g class="hpt">
+                                        <rect x="@Fmt(p.X - chart.HoverWidth / 2)" y="0" width="@Fmt(chart.HoverWidth)" height="130" fill="transparent"/>
+                                        <line x1="@Fmt(p.X)" x2="@Fmt(p.X)" y1="8" y2="86"/>
+                                        @if (p.TempY is { } tempY)
+                                        {
+                                            <circle class="temp" cx="@Fmt(p.X)" cy="@Fmt(tempY)" r="3"/>
+                                        }
+                                        @if (p.VpdY is { } vpdY)
+                                        {
+                                            <circle class="vpd" cx="@Fmt(p.X)" cy="@Fmt(vpdY)" r="3"/>
+                                        }
+                                        <text x="@Fmt(Math.Clamp(p.X, 110, chart.ViewWidth - 110))" y="122" text-anchor="middle">@p.Tip</text>
+                                    </g>
+                                }
+                            </svg>
                         </div>
                     </div>
-                }
-            </div>
+                </div>
             }
         </section>
     }
@@ -431,6 +504,33 @@
                     }
                 </section>
             }
+            @if (CycleService.CycleConfig is { } growthConfig)
+            {
+                <section class="device-card">
+                    <div class="device-head">
+                        <h2>Growth Stages</h2>
+                    </div>
+                    <div class="stage-summary">
+                        @foreach (var stage in LightCycleConfig.Stages)
+                        {
+                            var total = StageTotal(growthConfig, stage);
+                            var ongoing = growthConfig.ActiveStage == stage;
+                            <div class="stage-summary-row @(ongoing ? "ongoing" : "")">
+                                <span class="stage-summary-name">@StageIcon(stage) @stage</span>
+                                <span class="stage-summary-duration">@(total is { } t ? FormatDuration(t) : "–")</span>
+                                @if (ongoing)
+                                {
+                                    <span class="stage-summary-status ongoing">ongoing</span>
+                                }
+                                else if (total != null)
+                                {
+                                    <span class="stage-summary-status">finished</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
         </div>
     }
 </div>
@@ -442,6 +542,63 @@
     private bool _showSettings;
     private bool _acCommandRunning;
     private System.Threading.Timer? _clock;
+    private string? _editorStage;
+
+    /// <summary>Stage whose preset the editor shows; defaults to the active stage</summary>
+    private string EditorStage => _editorStage ?? CycleService.CycleConfig?.ActiveStage ?? LightCycleConfig.Stages[0];
+
+    private List<CyclePhase> EditorPhases =>
+        CycleService.CycleConfig?.Presets.GetValueOrDefault(EditorStage) ?? new List<CyclePhase>();
+
+    private async Task SelectStage(string stage)
+    {
+        if (CycleService.CycleConfig?.ActiveStage == stage) return;
+
+        try
+        {
+            await CycleService.SelectStage(stage);
+            ShowAction($"Growth stage set to {stage}");
+        }
+        catch (Exception ex)
+        {
+            ShowAction($"ERROR: {ex.Message}");
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ResetStage()
+    {
+        try
+        {
+            await CycleService.SelectStage(null);
+            ShowAction("Growth stages reset - history cleared, cycle enforcement paused");
+        }
+        catch (Exception ex)
+        {
+            ShowAction($"ERROR: {ex.Message}");
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Total time spent in a stage (all history entries plus the running
+    /// selection); null when the stage was never selected</summary>
+    private static TimeSpan? StageTotal(LightCycleConfig config, string stage)
+    {
+        var entries = config.StageHistory.Where(e => e.Stage == stage).ToList();
+        var total = entries.Aggregate(TimeSpan.Zero, (sum, e) => sum + (e.To - e.From));
+
+        if (config.ActiveStage == stage && config.ActiveSince != null)
+            return total + (DateTime.Now - config.ActiveSince.Value);
+
+        return entries.Count > 0 ? total : null;
+    }
+
+    private static string FormatDuration(TimeSpan duration) =>
+        duration.TotalDays >= 1 ? $"{(int)duration.TotalDays}d {duration.Hours}h"
+        : duration.TotalHours >= 1 ? $"{(int)duration.TotalHours}h {duration.Minutes}m"
+        : $"{Math.Max((int)duration.TotalMinutes, 0)}m";
 
     protected override void OnAfterRender(bool firstRender)
     {
@@ -488,9 +645,9 @@
     private IEnumerable<TimelineSegment> GetTimelineSegments()
     {
         var config = CycleService.CycleConfig;
-        if (config == null || config.Phases.Count == 0) yield break;
+        if (config == null || config.ActivePhases.Count == 0) yield break;
 
-        var sorted = config.Phases.OrderBy(p => p.Start).ToList();
+        var sorted = config.ActivePhases.OrderBy(p => p.Start).ToList();
         for (var i = 0; i < sorted.Count; i++)
         {
             var startMin = sorted[i].Start.Hour * 60 + sorted[i].Start.Minute;
@@ -525,70 +682,162 @@
     private string PhaseClass(string phaseName)
     {
         var config = CycleService.CycleConfig;
-        var index = config?.Phases.OrderBy(p => p.Start).ToList().FindIndex(p => p.Name == phaseName) ?? 0;
+        var index = config?.ActivePhases.OrderBy(p => p.Start).ToList().FindIndex(p => p.Name == phaseName) ?? 0;
         return $"phase-{Math.Max(index, 0) % 4}";
     }
 
-    private static readonly TimeSpan HistoryWindow = TimeSpan.FromHours(24);
+    // Chart geometry: plot area inside a "600-per-screen" viewBox; the viewBox
+    // grows past 600 when the history spans more than one 48h screen
+    private const double ChartLeft = 6, ChartTop = 8, ChartBottom = 86;
     private static readonly TimeSpan BucketSize = TimeSpan.FromMinutes(6);
+    private static readonly TimeSpan MaxWindow = TimeSpan.FromHours(48);
 
-    private record HistoryChart(string Title, string Unit, double Min, double Max, string LinePath,
-        List<(double X, double Y, string Tip, bool Isolated)> Points);
+    private record HoverPoint(double X, double? TempY, double? VpdY, string Tip);
 
-    private List<HistoryChart>? BuildCharts(AcInfinityController controller)
+    private record CombinedChart(
+        double ViewWidth, double WidthPct, double HoverWidth,
+        string TempPath, double TempMin, double TempMax,
+        string? VpdPath, double VpdMin, double VpdMax,
+        List<HoverPoint> Points,
+        List<(double X, double Y, string Cls)> Dots,
+        List<(double X, double Width, double Opacity)> LightBands,
+        List<(double X, string Label)> TimeLabels);
+
+    private record SeriesData(string Path, double Min, double Max,
+        Dictionary<int, (double X, double Y, double Value)> ByIndex, List<(double X, double Y)> IsolatedDots);
+
+    /// <summary>
+    /// One chart holding both series. The x axis spans from the first sample
+    /// to now: up to 48h it fills the card, beyond that the chart gets
+    /// proportionally wider and scrolls horizontally (one screen = 48h).
+    /// Both series are normalized to their own min/max.
+    /// </summary>
+    private CombinedChart? BuildCombinedChart(AcInfinityController controller)
     {
         var samples = HistoryService.GetHistory(controller.Name);
-        var start = DateTime.Now - HistoryWindow;
-        var recent = samples.Where(s => s.Time >= start).ToList();
-        if (recent.Count < 2) return null;
+        if (samples.Count < 2) return null;
 
-        return new List<HistoryChart>
+        var now = DateTime.Now;
+        var start = samples[0].Time;
+        var span = now - start;
+        // A minutes-old history stretched across the full width looks broken - keep an hour floor
+        if (span < TimeSpan.FromHours(1)) span = TimeSpan.FromHours(1);
+        var visible = span > MaxWindow ? MaxWindow : span;
+        var stretch = span / visible;
+        var viewW = 600.0 * stretch;
+        var plotW = viewW - 2 * ChartLeft;
+
+        var temp = BuildSeries(samples, start, span, plotW, s => s.Temperature, 0.5);
+        if (temp == null) return null;
+        var vpd = BuildSeries(samples, start, span, plotW, s => s.Vpd, 0.05);
+
+        // Effective light level per bucket (actual lamp state, not the cycle target)
+        var lightByIndex = samples
+            .Where(s => s.Light != null)
+            .GroupBy(s => (int)((s.Time - start) / BucketSize))
+            .ToDictionary(g => g.Key, g => g.Average(s => s.Light!.Value));
+
+        var bandWidth = plotW / (span / BucketSize);
+        var lightBands = lightByIndex
+            .Where(kv => kv.Value > 0)
+            .OrderBy(kv => kv.Key)
+            .Select(kv => (X: ChartLeft + bandWidth * kv.Key, Width: bandWidth,
+                Opacity: 0.06 + 0.16 * kv.Value))
+            .ToList();
+
+        // Merged hover points: one tooltip per bucket covering both series
+        var showDate = span > TimeSpan.FromHours(24);
+        var indices = temp.ByIndex.Keys
+            .Union(vpd?.ByIndex.Keys ?? Enumerable.Empty<int>())
+            .OrderBy(i => i);
+        var points = new List<HoverPoint>();
+        foreach (var index in indices)
         {
-            BuildChart("Temperature", " °C", recent, start, s => s.Temperature),
-            BuildChart("Humidity", " %", recent, start, s => s.Humidity)
-        };
+            var time = start + BucketSize * (index + 0.5);
+            var x = ChartLeft + plotW * ((time - start) / span);
+            var parts = new List<string>();
+            double? tempY = null, vpdY = null;
+            if (temp.ByIndex.TryGetValue(index, out var tp))
+            {
+                tempY = tp.Y;
+                parts.Add($"{Fmt(tp.Value)} °C");
+            }
+            if (vpd != null && vpd.ByIndex.TryGetValue(index, out var vp))
+            {
+                vpdY = vp.Y;
+                parts.Add($"{F2(vp.Value)} kPa");
+            }
+            if (lightByIndex.TryGetValue(index, out var light))
+                parts.Add($"light {(int)Math.Round(light * 100)}%");
+            parts.Add(time.ToString(showDate ? "d.M. HH:mm" : "HH:mm"));
+            points.Add(new HoverPoint(x, tempY, vpdY, string.Join(" · ", parts)));
+        }
+
+        // Wall-clock aligned axis labels, at most ~8 per 48h screen
+        var stepHours = new[] { 1, 2, 3, 6, 12, 24 }.First(h => visible.TotalHours / h <= 8);
+        var labels = new List<(double X, string Label)>();
+        var tick = start.Date;
+        while (tick < start) tick = tick.AddHours(stepHours);
+        for (; tick <= now; tick = tick.AddHours(stepHours))
+        {
+            var x = ChartLeft + plotW * ((tick - start) / span);
+            labels.Add((x, tick.Hour == 0 ? tick.ToString("d.M.") : tick.ToString("HH:mm")));
+        }
+
+        var dots = new List<(double X, double Y, string Cls)>();
+        dots.AddRange(temp.IsolatedDots.Select(d => (d.X, d.Y, Cls: "temp")));
+        if (vpd != null)
+            dots.AddRange(vpd.IsolatedDots.Select(d => (d.X, d.Y, Cls: "vpd")));
+
+        return new CombinedChart(viewW, stretch * 100, bandWidth,
+            temp.Path, temp.Min, temp.Max,
+            vpd?.Path, vpd?.Min ?? 0, vpd?.Max ?? 0,
+            points, dots, lightBands, labels);
     }
 
-    private static HistoryChart BuildChart(string title, string unit, List<HistorySample> samples,
-        DateTime start, Func<HistorySample, double> select)
+    private static SeriesData? BuildSeries(IReadOnlyList<HistorySample> samples, DateTime start, TimeSpan span,
+        double plotW, Func<HistorySample, double?> select, double minPad)
     {
-        // SVG plot area inside the 600x110 viewBox
-        const double left = 6, right = 594, top = 8, bottom = 86;
-
         // Average into 6-minute buckets; missing buckets become gaps in the line
         var buckets = samples
+            .Where(s => select(s) != null)
             .GroupBy(s => (int)((s.Time - start) / BucketSize))
             .OrderBy(g => g.Key)
-            .Select(g => (Index: g.Key, Time: start + BucketSize * (g.Key + 0.5), Value: g.Average(select)))
+            .Select(g => (Index: g.Key, Value: g.Average(s => select(s)!.Value)))
             .ToList();
+        if (buckets.Count == 0) return null;
 
         var min = buckets.Min(b => b.Value);
         var max = buckets.Max(b => b.Value);
-        var pad = Math.Max((max - min) * 0.1, 0.5);
+        var pad = Math.Max((max - min) * 0.1, minPad);
         var lo = min - pad;
         var hi = max + pad;
 
-        var totalBuckets = (int)(HistoryWindow / BucketSize);
         var path = new System.Text.StringBuilder();
-        var points = new List<(double X, double Y, string Tip, bool Isolated)>();
+        var byIndex = new Dictionary<int, (double X, double Y, double Value)>();
+        var isolatedDots = new List<(double X, double Y)>();
+        var indices = buckets.Select(b => b.Index).ToHashSet();
         var prevIndex = int.MinValue;
 
-        var indices = buckets.Select(b => b.Index).ToHashSet();
         foreach (var b in buckets)
         {
-            var x = left + (right - left) * b.Index / (totalBuckets - 1);
-            var y = bottom - (bottom - top) * (b.Value - lo) / (hi - lo);
+            var time = start + BucketSize * (b.Index + 0.5);
+            var x = ChartLeft + plotW * ((time - start) / span);
+            var y = ChartBottom - (ChartBottom - ChartTop) * (b.Value - lo) / (hi - lo);
             path.Append(b.Index == prevIndex + 1 ? 'L' : 'M').Append(Fmt(x)).Append(' ').Append(Fmt(y));
             // A bucket with no neighbours draws no line segment - it needs a dot
-            var isolated = !indices.Contains(b.Index - 1) && !indices.Contains(b.Index + 1);
-            points.Add((x, y, $"{Fmt(b.Value)}{unit} · {b.Time:HH:mm}", isolated));
+            if (!indices.Contains(b.Index - 1) && !indices.Contains(b.Index + 1))
+                isolatedDots.Add((x, y));
+            byIndex[b.Index] = (x, y, b.Value);
             prevIndex = b.Index;
         }
 
-        return new HistoryChart(title, unit, min, max, path.ToString(), points);
+        return new SeriesData(path.ToString(), min, max, byIndex, isolatedDots);
     }
 
     private static string Fmt(double value) => value.ToString("F1", CultureInfo.InvariantCulture);
+
+    private static string F2(double value) => value.ToString("F2", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Cycle entries pointing at hosts/controllers that are not in the config
@@ -603,7 +852,13 @@
         // During startup nothing is loaded yet - suppress the false alarm
         if (!EspService.Devices.Any() && !AcService.Controllers.Any()) return warnings;
 
-        foreach (var phase in config.Phases)
+        if (config.ActiveStage == null)
+            warnings.Add("No growth stage selected — lights and fans are not being controlled");
+        else if (config.ActivePhases.Count == 0)
+            warnings.Add($"The {config.ActiveStage} preset has no phases — lights and fans are not being controlled");
+
+        // Only the active preset is enforced - broken references elsewhere show in the editor
+        foreach (var phase in config.ActivePhases)
         {
             foreach (var actor in phase.Actors.Where(ActorMissing))
                 warnings.Add($"{actor.ObjectId} → {actor.Node}: node not configured — the cycle cannot control this actor");
@@ -687,15 +942,22 @@
 
     private void AddPhase()
     {
-        var config = CycleService.CycleConfig;
-        if (config == null) return;
-        config.Phases.Add(new CyclePhase
+        if (CycleService.CycleConfig == null) return;
+        var phases = EditorPhases;
+        phases.Add(new CyclePhase
         {
-            Name = $"Phase {config.Phases.Count + 1}",
+            Name = $"Phase {phases.Count + 1}",
             Start = new TimeOnly(12, 0),
             Actors = new List<ActorState>()
         });
     }
+
+    private static MarkupString StageIcon(string stage) => stage switch
+    {
+        "Seedling" => IconSprout,
+        "Bloom" => IconFlower,
+        _ => IconLeaf
+    };
 
     private static MarkupString PhaseIcon(string phaseName)
     {
@@ -714,6 +976,17 @@
     private static readonly MarkupString IconLeaf = Icon(
         "<path d=\"M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z\"/>" +
         "<path d=\"M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12\"/>");
+
+    private static readonly MarkupString IconSprout = Icon(
+        "<path d=\"M7 20h10\"/><path d=\"M10 20c5.5-2.5.8-6.4 3-10\"/>" +
+        "<path d=\"M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z\"/>" +
+        "<path d=\"M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z\"/>");
+
+    private static readonly MarkupString IconFlower = Icon(
+        "<path d=\"M12 5a3 3 0 1 1 3 3m-3-3a3 3 0 1 0-3 3m3-3v1M9 8a3 3 0 1 0 3 3M9 8h1m5 0a3 3 0 1 1-3 3m3-3h-1m-2 3v-1\"/>" +
+        "<circle cx=\"12\" cy=\"8\" r=\"2\"/><path d=\"M12 10v12\"/>" +
+        "<path d=\"M12 22c4.2 0 7-1.667 7-5-4.2 0-7 1.667-7 5Z\"/>" +
+        "<path d=\"M12 22c-4.2 0-7-1.667-7-5 4.2 0 7 1.667 7 5Z\"/>");
 
     private static readonly MarkupString IconSun = Icon(
         "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/>" +

@@ -71,7 +71,9 @@ public class AcInfinityService : BackgroundService
             // Re-subscribe to advertisements after every proxy (re)connect
             while (!stoppingToken.IsCancellationRequested)
             {
-                if (!proxy.IsConnected)
+                // Wait for the FULL handshake: subscribing mid-auth gets the
+                // requests silently dropped by the proxy
+                if (!proxy.IsReady)
                 {
                     await Task.Delay(2000, stoppingToken);
                     continue;
