@@ -1,0 +1,45 @@
+esphome:
+  name: esp_sunlight
+
+esp32:
+  board: featheresp32
+  framework:
+    type: arduino
+
+# GPIO1 is UART0-TX and now drives the dimmer PWM; baud_rate 0 frees the pin
+logger:
+  baud_rate: 0
+
+api:
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  manual_ip:
+    static_ip: 192.168.0.210
+    gateway: 192.168.0.254
+    subnet: 255.255.255.0
+
+  ap:
+    ssid: "Sunlight Fallback Hotspot"
+    password: !secret ap_password
+
+captive_portal:
+
+output:
+  - platform: ledc
+    pin: GPIO1
+    id: main_light_pwm
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    name: "Main Light"
+    output: main_light_pwm
+    id: main_light
+    restore_mode: RESTORE_DEFAULT_OFF

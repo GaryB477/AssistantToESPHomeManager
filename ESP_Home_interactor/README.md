@@ -1,7 +1,7 @@
 # Goal
 I want an alternative to the veeery convoluted and annoying Home Assistant. Its just not what I need.
 This tool is initially used to provide me with a dashboard for my homegrow setup. To achieve this, I want to utilize the preexisting [Esphome](https://esphome.io/) ecosystem since it provides a simple way to manage esp32 micro controllers and even allows OTA updates.
-In addition to esphome, it should also support AC Infinity 69 (nice) controllers via bluetooth proxies. This has already been tested with the [BLE proxy](ESP_Home_interactor/integration_test/ACInfinity_BLE_proxy/ac-infinity-proxy.yaml)
+In addition to esphome, it should also support AC Infinity 69 (nice) controllers via bluetooth proxies. This has already been tested with the [BLE proxy](ESP_Home_interactor/esphome/ac-infinity-proxy.yaml)
 
 ## Must requirements
 **Functionallity**

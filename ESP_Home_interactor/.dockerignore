@@ -8,7 +8,7 @@ docs/
 .DS_Store
 python_reference/
 aioesphomeapi/
-integration_test/
+esphome/
 *.md
 Dockerfile
 docker-compose.yml

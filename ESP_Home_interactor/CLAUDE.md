@@ -30,7 +30,7 @@ sockets with Protocol Buffers.
     - `client_base.py` - Base client functionality
     - `host_resolver.py` - Host resolution logic
 - `aioesphomeapi/README.md` - Protocol documentation including message types and IDs
-- `integration_test/` - ESPHome test device configuration and C++ reference implementation
+- `esphome/` - ESPHome device configs (`esp_sunlight.yaml`, `ac-infinity-proxy.yaml`); shared `secrets.yaml` and build cache are gitignored
 
 ## Protocol Implementation
 
