@@ -8,12 +8,12 @@
     },
     {
       "Name": "ble-proxy",
-      "Host": "192.168.0.101",
+      "Host": "192.168.0.211",
       "Port": 6053
     }
   ],
   "AcInfinity": {
-    "ProxyHost": "192.168.0.101",
+    "ProxyHost": "192.168.0.211",
     "Controllers": [
       {
         "Name": "Controller 69",
@@ -24,7 +24,7 @@
             "Name": "Ventilation"
           },
           {
-            "Port": 3,
+            "Port": 1,
             "Name": "Fan"
           }
         ]
